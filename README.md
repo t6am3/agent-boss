@@ -4,10 +4,11 @@
 
 ## 文档
 
-| 文档 | 链接 |
-|------|------|
-| **产品需求文档 (PRD)** | https://feishu.cn/docx/CnKKdNRiUoCXfxxnnAlcL88anAh |
-| **技术方案 (TECH-SPEC)** | https://feishu.cn/docx/V4MndBj6KofS2RxErh3cxJn6nhd |
+| 文档 | 位置 | 链接 |
+|------|------|------|
+| **产品需求文档 (PRD)** | `docs/PRD.md` | https://feishu.cn/docx/CnKKdNRiUoCXfxxnnAlcL88anAh |
+| **技术方案 (TECH-SPEC)** | `docs/TECH-SPEC.md` | https://feishu.cn/docx/V4MndBj6KofS2RxErh3cxJn6nhd |
+| **项目规范** | `AGENTS.md` | — |
 
 ## 核心理念
 
@@ -39,6 +40,10 @@ CEO Boss ──→ 部门 Boss ──→ 个人 Boss ──→ Worker Agent
 - Protocol: JSON-RPC 2.0 over WebSocket (ABCP)
 - Storage: SQLite
 - CLI: ink (React for Terminal)
+
+## 项目规范
+
+见 [AGENTS.md](AGENTS.md) — 目录结构、版本管理、Git 工作流、文档质量门槛。
 
 ## 状态
 
