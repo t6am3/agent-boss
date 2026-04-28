@@ -269,8 +269,8 @@ v1.0.0   # 正式版
 | 文件 | 版本 | 状态 | 位置 |
 |------|------|------|------|
 | PRD | v0.3 | 活跃 | `docs/PRD.md` |
-| TECH-SPEC | — | **待重写** | — |
-| **设计文档** | **v1.0-v1.3** | **草案** | **`docs/plans/`** |
+| TECH-SPEC | **v1.0** | **活跃** | `docs/TECH-SPEC.md` |
+| 设计文档 | v1.0-v1.3 | 草案 | `docs/plans/` |
 | AGENTS.md | v1.0 | 活跃 | `AGENTS.md` |
 | README | v1.0 | 活跃 | `README.md` |
 
