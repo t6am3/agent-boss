@@ -270,8 +270,18 @@ v1.0.0   # 正式版
 |------|------|------|------|
 | PRD | v0.3 | 活跃 | `docs/PRD.md` |
 | TECH-SPEC | — | **待重写** | — |
+| **设计文档** | **v1.0-v1.3** | **草案** | **`docs/plans/`** |
 | AGENTS.md | v1.0 | 活跃 | `AGENTS.md` |
 | README | v1.0 | 活跃 | `README.md` |
+
+### 设计文档清单
+
+| 版本 | 文档 | 内容 | 状态 |
+|------|------|------|------|
+| v1.0 | `2026-04-29-system-architecture-design.md` | 系统架构、数据模型、SQLite 表结构、扩展点 | 草案 |
+| v1.1 | `2026-04-29-core-modules-design.md` | Router Engine 自动推荐、Judge ELO 评分、Result Collector、Group Chat | 草案 |
+| v1.2 | `2026-04-29-adapter-design.md` | Codex/Claude Code/OpenClaw/Hermes 适配器实现细节 | 草案 |
+| v1.3 | `2026-04-29-recursive-layer-design.md` | 递归层：同构节点、任务拆解、跨部门协作 | 草案（远期） |
 
 ---
 
