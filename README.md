@@ -7,7 +7,6 @@
 | 文档 | 位置 | 链接 |
 |------|------|------|
 | **产品需求文档 (PRD)** | `docs/PRD.md` | https://feishu.cn/docx/CnKKdNRiUoCXfxxnnAlcL88anAh |
-| **技术方案 (TECH-SPEC)** | `docs/TECH-SPEC.md` | https://feishu.cn/docx/V4MndBj6KofS2RxErh3cxJn6nhd |
 | **项目规范** | `AGENTS.md` | — |
 
 ## 核心理念
