@@ -38,7 +38,31 @@ agent-boss/
 
 ## 二、版本管理
 
-### 2.1 文档版本
+### 2.1 历史追溯
+
+**所有历史版本必须可恢复。** 两种方式：
+
+| 方式 | 适用场景 | 命令 |
+|------|---------|------|
+| **Git History** | 查看任意提交的完整文件 | `git show <commit>:docs/PRD.md` |
+| **Archive 快照** | 快速对比历史版本差异 | 直接打开 `archive/PRD-v0.2-recursive.md` |
+
+**规则：**
+- 活跃文档的大版本更新时，旧版必须留 snapshot 在 `archive/`
+- Snapshot 命名：`{文件名}-v{版本号}-{简述}.md`
+- 如果某版在提交 git 前就被覆盖（未入 git），视为丢失，需在 AGENTS.md 记录
+
+### 2.2 版本记录表
+
+| 文档 | 版本 | 状态 | 位置 | 可追溯 |
+|------|------|------|------|--------|
+| PRD | v0.1 | **已丢失** | — | ❌ 未提交 git |
+| PRD | v0.2 | 归档 | `archive/PRD-v0.2-recursive.md` | ✅ git + archive |
+| PRD | v0.3 | 活跃 | `docs/PRD.md` | ✅ git |
+| TECH-SPEC | v0.2 | 废弃 | `archive/TECH-SPEC-v0.2-deprecated.md` | ✅ git + archive |
+| AGENTS.md | v1.0 | 活跃 | `AGENTS.md` | ✅ git |
+
+### 2.3 文档版本
 
 每个文档头部必须标注版本：
 
@@ -167,16 +191,16 @@ v1.0.0   # 正式版
 `CHANGELOG.md` 按版本记录：
 
 ```markdown
-## v0.2.0 — 2026-04-28
+## v0.3.0 — 2026-04-28
 ### 新增
-- 递归架构设计
-- ABCP 通信协议
+- PRD v0.3：聚焦用户需求，去除技术接口
+- 5 个拓展方向（路由策略、Agent 画像、组织学习、成本意识、工作流编排）
 
 ### 变更
-- PRD 从 v0.1 升级至 v0.2
+- PRD 从 v0.2 升级至 v0.3
 
 ### 废弃
-- TECH-SPEC v0.1（扁平架构）
+- TECH-SPEC v0.2（技术方案重写中）
 ```
 
 ---
@@ -185,8 +209,8 @@ v1.0.0   # 正式版
 
 | 文件 | 版本 | 状态 | 位置 |
 |------|------|------|------|
-| PRD | v0.2 | 活跃 | `docs/PRD.md` |
-| TECH-SPEC | v0.2 | **废弃** | `archive/TECH-SPEC-v0.2-deprecated.md` |
+| PRD | v0.3 | 活跃 | `docs/PRD.md` |
+| TECH-SPEC | — | **待重写** | — |
 | AGENTS.md | v1.0 | 活跃 | `AGENTS.md` |
 | README | v1.0 | 活跃 | `README.md` |
 
@@ -194,7 +218,7 @@ v1.0.0   # 正式版
 
 ## 七、下一步
 
-- [ ] 重写 TECH-SPEC（基于评审意见）
+- [ ] 重写 TECH-SPEC（基于 PRD v0.3 推导）
 - [ ] 创建 `src/` 目录，开始 Milestone 1 编码
 - [ ] 创建 `docs/adr/` 目录，记录关键决策
 
