@@ -28,29 +28,13 @@ export class ClaudeCodeAdapter implements Agent {
           code === 0 ? resolve() : reject(new Error("claude not found"));
         });
       });
+      this._status = "ready";
     } catch {
       this._status = "offline";
       throw new Error(
         "claude CLI not found. Install with: npm install -g @anthropics/claude-code"
       );
     }
-
-    // Start PTY
-    this.pty = spawnPty("claude", [], {
-      cols: 120,
-      rows: 40,
-      cwd: process.cwd(),
-      env: process.env as { [key: string]: string },
-    });
-
-    // Collect output until we see the prompt
-    this.pty.onData((data) => {
-      this.outputBuffer += data;
-    });
-
-    // Wait for initial prompt
-    await this.waitForPrompt(30000);
-    this._status = "ready";
   }
 
   async stop(): Promise<void> {

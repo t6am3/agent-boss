@@ -2,6 +2,9 @@
 // Manages Worker Agents, handles query routing, judging, and group discussions
 // Based on TECH-SPEC v1.0
 
+import { CodexAdapter } from '../adapters/CodexAdapter';
+import { ClaudeCodeAdapter } from '../adapters/ClaudeCodeAdapter';
+import { OpenClawAdapter } from '../adapters/OpenClawAdapter';
 import { Agent } from '../adapters/AgentAdapter';
 import { AgentProfile, Task, TaskMode, Context, JudgeRecord, GroupChat, ChatMessage } from './types';
 import { RouterEngine } from './RouterEngine';
@@ -32,9 +35,44 @@ export class AgentBoss {
   }
 
   async discoverAgents(): Promise<void> {
-    // TODO: Auto-discovery logic
-    // For now, agents must be registered manually
-    console.log(`Registered agents: ${Array.from(this.agents.keys()).join(', ')}`);
+    // Auto-register available agents
+    const available: Agent[] = [];
+    
+    // Try Codex
+    try {
+      const codex = new CodexAdapter();
+      await codex.start();
+      available.push(codex);
+      this.registerAgent(codex);
+    } catch {
+      // Codex not available
+    }
+    
+    // Try Claude Code
+    try {
+      const claude = new ClaudeCodeAdapter();
+      await claude.start();
+      available.push(claude);
+      this.registerAgent(claude);
+    } catch {
+      // Claude Code not available
+    }
+    
+    // Try OpenClaw (skeleton — likely fails to connect)
+    try {
+      const openclaw = new OpenClawAdapter();
+      await openclaw.start();
+      available.push(openclaw);
+      this.registerAgent(openclaw);
+    } catch {
+      // OpenClaw not available
+    }
+    
+    if (available.length === 0) {
+      console.log('⚠️  No agents available. Install codex or claude CLI.');
+    } else {
+      console.log(`✅ Registered ${available.length} agent(s): ${available.map(a => a.name).join(', ')}`);
+    }
   }
 
   registerAgent(agent: Agent): void {
