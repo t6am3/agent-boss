@@ -272,6 +272,7 @@ v1.0.0   # 正式版
 |------|------|------|------|
 | PRD | v0.4 | 活跃草案 | `docs/PRD.md` |
 | TECH-SPEC | v0.4 | 活跃草案 | `docs/TECH-SPEC.md` |
+| 代码骨架 | v0.4 | 已打样 | `src/` |
 | 设计文档 | v1.0-v1.3 | 草案 | `docs/plans/` |
 | AGENTS.md | v1.0 | 活跃 | `AGENTS.md` |
 | README | v1.0 | 活跃 | `README.md` |
@@ -289,8 +290,9 @@ v1.0.0   # 正式版
 
 ## 八、下一步
 
-- [ ] 归档旧 `src/` 到 `archive/src-v0.3-task-router/`，重建干净的 v0.4 `src/`
-- [ ] 实现 v0.4 P0：`assets`、`mission create`、`mission status`、`mission report`、`judge`
+- [ ] 打磨 v0.4 CLI 参数和输出体验
+- [ ] 为 AssetLedger / MissionStore / Supervisor / Reporter 补测试
+- [ ] 设计 `MissionRunner` 接口，按新架构重写 Codex / Claude / OpenClaw adapter
 - [ ] 创建 `docs/adr/` 目录，记录关键决策
 
 ---

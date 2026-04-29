@@ -1,7 +1,7 @@
 {
   "name": "agent-boss",
   "version": "0.1.0",
-  "description": "递归型多 Agent 编排器 —— Agent 管理 Agent，无限层级扩展",
+  "description": "Mission-first AI supervisor for managing agent work, assets, status, and evaluations",
   "main": "dist/index.js",
   "bin": {
     "agent-boss": "dist/cli.js"
@@ -14,8 +14,10 @@
   },
   "keywords": [
     "agent",
-    "orchestrator",
+    "supervisor",
+    "mission",
     "multi-agent",
+    "asset-ledger",
     "claude",
     "codex",
     "openclaw",
