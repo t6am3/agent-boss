@@ -93,14 +93,17 @@ async function handleMission(app: Awaited<ReturnType<typeof createApp>>, args: s
   if (action === 'create') {
     const goal = parsed.positionals.join(' ');
     requireArg(goal, 'Usage: agent-boss mission create "<goal>"');
-    const candidates = await app.assets.findCandidates(goal);
+    const explicitAssets = splitCsv(readFlag(parsed, 'assets'));
+    const candidates = explicitAssets
+      ? await Promise.all(explicitAssets.map((assetId) => requireAsset(app, assetId)))
+      : await app.assets.findCandidates(goal);
     const mission = await app.missions.createMission(goal, candidates.map((asset) => asset.id));
     console.log(`Mission created: ${mission.id}`);
     console.log(app.reporter.renderMissionDetail(mission, await app.missions.listEvents(mission.id)));
     return;
   }
 
-  if (action === 'status') {
+  if (action === 'status' || action === 'list') {
     const id = parsed.positionals[0];
     if (!id) {
       console.log(app.reporter.renderMissionList(await app.missions.listMissions()));
@@ -240,6 +243,14 @@ async function requireMission(app: Awaited<ReturnType<typeof createApp>>, id: st
   return mission;
 }
 
+async function requireAsset(app: Awaited<ReturnType<typeof createApp>>, id: string) {
+  const asset = await app.assets.getAsset(id);
+  if (!asset) {
+    throw new Error(`Asset not found: ${id}`);
+  }
+  return asset;
+}
+
 function parseArgs(args: string[]): ParsedArgs {
   const positionals: string[] = [];
   const flags: Record<string, string | true> = {};
@@ -331,6 +342,8 @@ Usage:
   agent-boss assets show <id>
 
   agent-boss mission create "<goal>"
+  agent-boss mission create "<goal>" --assets codex,claude-code
+  agent-boss mission list
   agent-boss mission status [missionId]
   agent-boss mission report <missionId>
   agent-boss mission event <missionId> "<content>" --type progress --actor codex

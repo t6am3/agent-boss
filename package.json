@@ -10,7 +10,7 @@
     "build": "tsc",
     "start": "node dist/cli.js",
     "dev": "tsx src/cli.ts",
-    "test": "jest"
+    "test": "npm run build && node --test test/*.test.mjs"
   },
   "keywords": [
     "agent",

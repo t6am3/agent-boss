@@ -290,8 +290,7 @@ v1.0.0   # 正式版
 
 ## 八、下一步
 
-- [ ] 打磨 v0.4 CLI 参数和输出体验
-- [ ] 为 AssetLedger / MissionStore / Supervisor / Reporter 补测试
+- [ ] 为 AssetLedger / MissionStore / Supervisor / Reporter 补更细的单元测试
 - [ ] 设计 `MissionRunner` 接口，按新架构重写 Codex / Claude / OpenClaw adapter
 - [ ] 创建 `docs/adr/` 目录，记录关键决策
 
