@@ -19,13 +19,18 @@ export class ClaudeCodeAdapter implements Agent {
   private outputBuffer = "";
   private promptDetected = false;
 
+  private claudePath?: string;
+
   async start(): Promise<void> {
-    // Verify claude is available
+    // Verify claude is available and resolve absolute path
     try {
-      await new Promise<void>((resolve, reject) => {
+      this.claudePath = await new Promise<string>((resolve, reject) => {
         const check = spawn("which", ["claude"]);
+        let path = "";
+        check.stdout.on("data", (d) => { path += d.toString(); });
         check.on("close", (code: number | null) => {
-          code === 0 ? resolve() : reject(new Error("claude not found"));
+          const clean = path.trim();
+          code === 0 && clean ? resolve(clean) : reject(new Error("claude not found"));
         });
       });
       this._status = "ready";
@@ -47,7 +52,24 @@ export class ClaudeCodeAdapter implements Agent {
   }
 
   async *send(query: string, _options?: SendOptions): AsyncIterable<Chunk> {
+    // Start PTY on-demand if not already running
     if (!this.pty || this._status === "offline") {
+      const claude = this.claudePath || "claude";
+      this.pty = spawnPty(claude, ["-p", "--dangerously-skip-permissions"], {
+        cols: 120,
+        rows: 40,
+        cwd: process.cwd(),
+        env: process.env as { [key: string]: string },
+      });
+
+      this.pty.onData((data) => {
+        this.outputBuffer += data;
+      });
+
+      await this.waitForPrompt(30000);
+    }
+
+    if (!this.pty) {
       throw new Error("PTY not started. Call start() first.");
     }
 
