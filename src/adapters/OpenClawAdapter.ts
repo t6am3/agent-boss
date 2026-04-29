@@ -4,8 +4,16 @@ import { Agent, AgentStatus, Chunk, SendOptions } from "./AgentAdapter";
 /**
  * OpenClaw Adapter
  *
- * Connects to OpenClaw Gateway via WebSocket
- * Uses sessions_spawn for task execution
+ * Connects to OpenClaw Gateway via WebSocket (JSON-RPC 2.0)
+ * Gateway runs at ws://127.0.0.1:18789
+ *
+ * Observed protocol patterns from gateway logs:
+ * - Methods: sessions.list, node.list, sessions.spawn, sessions.send, sessions.history
+ * - Format: JSON-RPC 2.0 with { jsonrpc, id, method, params }
+ * - Gateway also exposes HTTP endpoints: GET /health, GET /api/sessions, etc.
+ *
+ * TODO: Need to capture actual WebSocket request/response format
+ *       to implement sessions_spawn + sessions_send correctly.
  */
 export class OpenClawAdapter implements Agent {
   readonly id = "openclaw";
