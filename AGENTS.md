@@ -120,7 +120,7 @@ brainstorms/2026-05-01-刘幼峰.md
 | PRD | v0.3 | 归档 | `archive/PRD-v0.3-superseded-by-v0.4.md` | ✅ git + archive |
 | PRD | v0.4 | 活跃草案 | `docs/PRD.md` | ✅ git |
 | TECH-SPEC | v0.2 | 废弃 | `archive/TECH-SPEC-v0.2-deprecated.md` | ✅ git + archive |
-| TECH-SPEC | v1.0 | 待对齐 | `docs/TECH-SPEC.md` | ✅ git |
+| TECH-SPEC | v0.4 | 活跃草案 | `docs/TECH-SPEC.md` | ✅ git |
 | AGENTS.md | v1.0 | 活跃 | `AGENTS.md` | ✅ git |
 
 ### 3.3 文档版本
@@ -271,7 +271,7 @@ v1.0.0   # 正式版
 | 文件 | 版本 | 状态 | 位置 |
 |------|------|------|------|
 | PRD | v0.4 | 活跃草案 | `docs/PRD.md` |
-| TECH-SPEC | v1.0 | 待对齐（基于 PRD v0.3） | `docs/TECH-SPEC.md` |
+| TECH-SPEC | v0.4 | 活跃草案 | `docs/TECH-SPEC.md` |
 | 设计文档 | v1.0-v1.3 | 草案 | `docs/plans/` |
 | AGENTS.md | v1.0 | 活跃 | `AGENTS.md` |
 | README | v1.0 | 活跃 | `README.md` |
@@ -289,8 +289,8 @@ v1.0.0   # 正式版
 
 ## 八、下一步
 
-- [ ] 对齐 TECH-SPEC（基于 PRD v0.4 的 AI 监工台定位）
-- [ ] 调整 Milestone 1 编码目标：从 `ask/query` 优先改为 `mission/status/assets` 优先
+- [ ] 归档旧 `src/` 到 `archive/src-v0.3-task-router/`，重建干净的 v0.4 `src/`
+- [ ] 实现 v0.4 P0：`assets`、`mission create`、`mission status`、`mission report`、`judge`
 - [ ] 创建 `docs/adr/` 目录，记录关键决策
 
 ---

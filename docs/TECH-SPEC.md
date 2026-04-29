@@ -1,405 +1,603 @@
-# Agent Boss — 技术方案 (TECH-SPEC)
+# Agent Boss — 技术方案 (TECH-SPEC v0.4)
 
-> 版本：v1.0
+> 版本：v0.4
 > 日期：2026-04-29
-> 状态：待对齐（基于 PRD v0.3，需按 PRD v0.4 重写）
-> 作者：大雄（kimi-2.5）
-> 基于：PRD v0.3（已归档）
-
-> 注意：PRD v0.4 已将产品核心从“多 Agent 编排器”调整为“AI 监工台”。本文档当前仅作为历史技术参考，不能作为最新实现依据；下一版 TECH-SPEC 需要围绕 `Mission`、`Asset Ledger`、`Supervisor Policy` 和 `Mission Status Board` 重新对齐。
+> 状态：活跃草案
+> 作者：刘幼峰 + Codex
+> 基于：PRD v0.4
 
 ---
 
-## 一、总体架构
+## 一、目标与边界
 
-```
-┌─────────────────────────────────────────────┐
-│                CLI Layer                     │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐      │
-│  │  ask    │ │ compare │ │ judge   │      │
-│  │  agents │ │ history │ │ group   │      │
-│  └────┬────┘ └────┬────┘ └────┬────┘      │
-└───────┼───────────┼───────────┼───────────┘
-        │           │           │
-┌───────▼───────────▼───────────▼───────────┐
-│           Core Orchestrator                  │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐     │
-│  │ Router  │ │ Result  │ │ Judge   │     │
-│  │ Engine  │ │Collector│ │ Panel   │     │
-│  └────┬────┘ └────┬────┘ └────┬────┘     │
-│       │           │           │          │
-│  ┌────┴───────────┴───────────┴────┐   │
-│  │         Agent Registry            │   │
-│  │  ┌────┐ ┌────┐ ┌────┐ ┌────┐   │   │
-│  │  │ C  │ │ X  │ │ O  │ │ H  │   │   │
-│  │  │ l  │ │ e  │ │ p  │ │ e  │   │   │
-│  │  │ a  │ │ d  │ │ e  │ │ r  │   │   │
-│  │  │ u  │ │ e  │ │ n │ │ m  │   │   │
-│  │  │ d  │ │ x  │ │ C  │ │ e  │   │   │
-│  │  │ e  │ │    │ │ l  │ │ s  │   │   │
-│  │  └────┘ └────┘ └────┘ └────┘   │   │
-│  └─────────────────────────────────┘   │
-│                                         │
-│  ┌─────────┐ ┌─────────┐               │
-│  │  Task   │ │  Agent  │               │
-│  │  Store  │ │ Profile │               │
-│  │ (SQLite)│ │ (SQLite)│               │
-│  └─────────┘ └─────────┘               │
-└─────────────────────────────────────────┘
-```
+### 1.1 v0.1 工程目标
 
-### 模块职责
+先实现本地 CLI 版 AI 监工台，让用户可以：
 
-| 模块 | 职责 | 对应 PRD 需求 |
-|------|------|--------------|
-| CLI Layer | 解析命令，展示结果 | 需求 1（统一入口） |
-| Router Engine | 决定 query 发给谁 | 需求 1（自动推荐） |
-| Result Collector | 收集/展示多 agent 输出 | 需求 2（A/B 对比） |
-| Judge Panel | 存储/分析评判记录 | 需求 3（评判积累） |
-| Agent Registry | 管理 agent 生命周期 | 需求 1（自动发现） |
-| Task Store | 持久化任务历史 | — |
-| Agent Profile | 积累 agent 能力画像 | 拓展 3.2（Agent 画像） |
+1. 登记 AI 资产：agent、model、plan、tool。
+2. 创建 Mission，而不是只发一次 query。
+3. 查看 Mission 状态板和随时汇报。
+4. 记录下层 agent 的进展、阻塞、确认请求和 Boss 代决策。
+5. 对 Mission 做 judge，沉淀资产表现和用户偏好。
+
+### 1.2 非目标
+
+v0.1 不做：
+
+- Web Dashboard
+- 真实 token / plan 余额自动对接
+- 多 Boss 递归组织
+- 自动接管所有 Agent UI
+- 复杂 workflow DSL
+- 企业权限系统
+
+### 1.3 重写原则
+
+当前 `src/` 代码基于 PRD v0.3，核心抽象是 `ask/query/task/router/judge`。这套抽象已经偏离 PRD v0.4 的 Mission 监工台方向，不再作为实现依据。
+
+v0.4 实现采用直接重写策略：
+
+- 先将现有 `src/` 归档为 `archive/src-v0.3-task-router/`。
+- 新建干净的 `src/`，从 Mission、Asset、Supervisor、Reporter 开始实现。
+- 不做向后兼容，不保留 legacy query 主线，不把任何 v0.3 模块作为架构约束。
+- 旧代码只通过 git history 保留历史价值；实现时不得以复用旧模块为目标。
+- 如果某段旧 adapter 代码确实有价值，必须在新架构完成后按新接口重新移植，而不是原样接入。
 
 ---
 
-## 二、核心数据模型
+## 二、总体架构
 
-### 2.1 Agent（黑箱能力单元）
+```text
+CLI
+├── assets add/list/show
+├── mission create/status/report/event/decide/complete
+└── judge
 
-```typescript
-interface Agent {
-  id: string;           // "claude-code" | "codex" | "openclaw" | "hermes"
-  name: string;
-  type: "cli" | "websocket" | "gateway";
-  
-  // 核心操作
-  send(query: string, context?: Context): Promise<Result>;
-  status(): AgentStatus;  // ready | busy | offline
-  
-  // 元数据（运行时收集）
-  capabilities: string[];
-  avgScore: number;
-  totalTasks: number;
-}
+Core
+├── AssetLedger            # AI 资产台账
+├── MissionStore           # Mission + event log + persistence
+├── Supervisor             # 代决策与升级规则
+├── Reporter               # 老板视角状态板和汇报
+└── EvaluationEngine       # 评分与表现沉淀
+
+Adapters
+├── CodexAdapter
+├── ClaudeCodeAdapter
+├── OpenClawAdapter
+└── Future adapters
+
+Storage
+└── SQLite                 # v0.1 默认本地单文件
 ```
 
-**设计原则：Agent 是黑箱。** 不暴露内部实现，只关心输入和输出。能力画像由外部评判系统积累，不是 self-declared。
+核心原则：
 
-### 2.2 Task（原子工作单元）
+- **Mission 是主对象**：所有资产使用、事件、决策、评价都围绕 Mission 记录。
+- **Event log 是血管**：状态、汇报、复盘都从 MissionEvent 汇总生成。
+- **Supervisor 先规则化**：先用明确规则决定是否打扰用户，不引入不稳定智能判断。
+- **Reporter 面向老板**：默认展示结果、风险和下一步，折叠下层 agent 噪音。
+
+---
+
+## 三、核心数据模型
+
+### 3.1 Asset
 
 ```typescript
-interface Task {
+type AssetType = 'agent' | 'model' | 'plan' | 'tool';
+type AssetStatus = 'ready' | 'limited' | 'offline' | 'unknown';
+type CostMode = 'free' | 'subscription' | 'usage' | 'internal' | 'unknown';
+
+interface Asset {
   id: string;
-  query: string;
-  mode: "single" | "multi" | "group";
-  agents: string[];
-  context?: Context;
-  
-  results: Map<string, Result>;
-  judge?: JudgeRecord;
-  
+  type: AssetType;
+  name: string;
+  provider?: string;
+  plan?: string;
+  scenes: string[];
+  costMode: CostMode;
+  status: AssetStatus;
+  notes?: string;
   createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+说明：
+
+- `agent` 表示 Codex、Claude Code、OpenClaw 等可执行劳动力。
+- `model` 表示 GPT、Claude、Gemini、DeepSeek、本地模型等脑力资源。
+- `plan` 表示 coding plan、API token、订阅额度、内部额度等资源池。
+- `tool` 表示浏览器、飞书、代码库、数据库等可用工具。
+
+### 3.2 Mission
+
+```typescript
+type MissionStage =
+  | 'intake'
+  | 'planning'
+  | 'executing'
+  | 'reviewing'
+  | 'reporting'
+  | 'completed';
+
+type MissionStatus =
+  | 'active'
+  | 'blocked'
+  | 'waiting_resource'
+  | 'waiting_owner'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+type RiskLevel = 'low' | 'medium' | 'high';
+
+interface Mission {
+  id: string;
+  goal: string;
+  stage: MissionStage;
+  status: MissionStatus;
+  progress: number; // 0-100
+  risk: RiskLevel;
+  ownerNeeded: boolean;
+  currentAssignee?: string;
+  nextAction?: string;
+  summary?: string;
+  assetIds: string[];
+  createdAt: Date;
+  updatedAt: Date;
   completedAt?: Date;
-  tags: string[];
 }
 ```
 
-### 2.3 JudgeRecord（评判记录）
+### 3.3 MissionEvent
 
 ```typescript
-interface JudgeRecord {
-  taskId: string;
-  ratings: Map<string, {
-    score: "A+" | "A" | "B" | "C" | "D";
-    comment?: string;
-  }>;
-  winner?: string;
-  tags: string[];
+type MissionEventType =
+  | 'created'
+  | 'planned'
+  | 'assigned'
+  | 'progress'
+  | 'blocked'
+  | 'confirmation_requested'
+  | 'decision'
+  | 'resource_escalation'
+  | 'report'
+  | 'completed'
+  | 'failed'
+  | 'judged';
+
+interface MissionEvent {
+  id: string;
+  missionId: string;
+  type: MissionEventType;
+  actor: string; // owner | boss | codex | claude-code | system
+  content: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+}
+```
+
+### 3.4 SupervisorDecision
+
+```typescript
+type DecisionCategory = 'normal' | 'money' | 'permission' | 'destructive';
+
+interface SupervisorDecision {
+  id: string;
+  missionId: string;
+  question: string;
+  decision: string;
+  reason: string;
+  category: DecisionCategory;
+  escalatedToOwner: boolean;
+  createdAt: Date;
+}
+```
+
+### 3.5 Evaluation
+
+```typescript
+type Score = 'A+' | 'A' | 'B+' | 'B' | 'C' | 'D';
+
+interface Evaluation {
+  id: string;
+  missionId: string;
+  score: Score;
+  comment: string;
+  assetIds: string[];
+  qualityNotes?: string;
+  costNotes?: string;
+  lessons?: string;
   createdAt: Date;
 }
 ```
 
 ---
 
-## 三、Router Engine — 智能路由
+## 四、存储设计
 
-### 3.1 路由策略矩阵
+v0.1 使用 SQLite，默认数据库文件为 `.agent-boss/agent-boss.sqlite`。如果项目目录不可写，允许回退到用户目录 `~/.agent-boss/agent-boss.sqlite`。
 
-```typescript
-type RoutingStrategy = 
-  | "auto"      // 基于历史评分自动推荐
-  | "explicit"  // 用户明确指定
-  | "broadcast" // 发给所有
-  | "compete";  // 2-3 个 agent 竞争上岗
-
-interface RoutingDecision {
-  strategy: RoutingStrategy;
-  agents: string[];
-  reasoning?: string;
-  estimatedTime?: number;
-}
-```
-
-### 3.2 自动推荐算法
-
-```typescript
-function autoRoute(query: string, profiles: AgentProfile[]): RoutingDecision {
-  // Step 1: 提取场景标签（关键词匹配，非 LLM）
-  const tags = extractTags(query);
-  
-  // Step 2: 查询各 agent 在该场景下的表现
-  const candidates = profiles.map(p => ({
-    agentId: p.agent_id,
-    sceneScore: p.scene_scores[tags[0]]?.avg || 0,
-    globalScore: p.avg_score,
-    confidence: p.scene_scores[tags[0]]?.count || 0,
-  }));
-  
-  // Step 3: 综合排序（场景 70% + 全局 30%）
-  const ranked = candidates
-    .map(c => ({ ...c, composite: c.sceneScore * 0.7 + c.globalScore * 0.3 }))
-    .sort((a, b) => b.composite - a.composite);
-  
-  const top = ranked[0];
-  const hasEnoughData = top.confidence >= 3;
-  
-  return {
-    strategy: hasEnoughData ? "auto" : "compete",
-    agents: hasEnoughData ? [top.agentId] : [top.agentId, ranked[1].agentId],
-    reasoning: hasEnoughData
-      ? `${top.agentId} 在 "${tags[0]}" 场景下评分 ${top.sceneScore.toFixed(1)}`
-      : `"${tags[0]}" 场景数据不足，启动竞争模式`,
-  };
-}
-```
-
-### 3.3 场景标签提取（规则引擎）
-
-```typescript
-const SCENE_PATTERNS = {
-  "sql-optimization": [/sql/i, /query/i, /database/i, /optimize/i],
-  "algorithm-design": [/algorithm/i, /data structure/i, /leetcode/i],
-  "code-review": [/review/i, /refactor/i, /bug/i, /fix/i],
-  "architecture": [/architecture/i, /design pattern/i, /microservice/i],
-  "frontend-dev": [/react/i, /vue/i, /css/i, /ui/i, /component/i],
-  "devops": [/docker/i, /kubernetes/i, /deploy/i, /ci\/cd/i],
-  "api-design": [/api/i, /rest/i, /graphql/i, /endpoint/i],
-  "testing": [/test/i, /unit test/i, /mock/i, /coverage/i],
-};
-```
-
----
-
-## 四、Judge Panel — 评判系统
-
-### 4.1 评分体系
-
-| 等级 | 含义 | 积分 |
-|------|------|------|
-| A+ | 超出预期，最佳实践 | 5 |
-| A | 正确且完整 | 4 |
-| B+ | 正确但有瑕疵 | 3.5 |
-| B | 基本完成 | 3 |
-| C | 有缺陷，需修正 | 2 |
-| D | 错误或不可用 | 1 |
-
-### 4.2 ELO 评分算法
-
-```typescript
-function updateElo(winner: AgentProfile, loser: AgentProfile, kFactor: number = 32): void {
-  const expectedWin = 1 / (1 + 10 ** ((loser.elo - winner.elo) / 400));
-  winner.elo += kFactor * (1 - expectedWin);
-  loser.elo += kFactor * (0 - expectedWin);
-}
-```
-
-### 4.3 自动标签提取
-
-从用户评论中提取能力标签：
-
-```typescript
-const CAPABILITY_PATTERNS = {
-  "边界处理": [/边界/i, /edge case/i, /corner case/i, /空值/i],
-  "并发安全": [/并发/i, /线程安全/i, /race condition/i, /lock/i],
-  "性能优化": [/性能/i, /optimize/i, /fast/i, /缓存/i, /cache/i],
-  "代码简洁": [/简洁/i, /clean/i, /短/i],
-  "架构设计": [/架构/i, /设计模式/i, /可扩展/i, /解耦/i],
-  "测试覆盖": [/测试/i, /test/i, /覆盖/i, /coverage/i],
-  "文档完善": [/文档/i, /注释/i, /doc/i, /README/i],
-  "错误处理": [/错误/i, /异常/i, /error/i, /try catch/i],
-};
-```
-
----
-
-## 五、Result Collector — 结果展示
-
-### 5.1 展示模式
-
-| 模式 | 适用场景 |
-|------|---------|
-| **流式** | 单发，实时滚动 |
-| **并排** | 多发（2个），左右分栏 |
-| **列表** | 多发（3+），折叠列表 |
-| **diff** | 多发对比，高亮差异 |
-| **对话** | 群组讨论，聊天记录式 |
-
-### 5.2 群组讨论实现
-
-```typescript
-async function roundRobinDiscussion(room: GroupChat, topic: string, maxRounds: number = 3): Promise<Message[]> {
-  const messages: Message[] = [{ agent: "user", content: topic }];
-  
-  for (let round = 1; round <= maxRounds; round++) {
-    for (const agentId of room.agent_ids) {
-      const context = buildContext(messages);
-      const prompt = `讨论主题：${topic}\n\n历史发言：\n${context}\n\n轮到你发言（第 ${round} 轮）。`;
-      
-      const response = await agents[agentId].send(prompt);
-      messages.push({ agent: agentId, content: response, round });
-    }
-    
-    if (isConsensus(getLastRounds(messages, 2))) break;
-  }
-  
-  return messages;
-}
-```
-
----
-
-## 六、Agent Adapter 层
-
-### 6.1 统一接口
-
-```typescript
-interface AgentAdapter {
-  readonly id: string;
-  readonly name: string;
-  readonly type: "cli" | "websocket";
-  
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
-  getStatus(): AgentStatus;
-  send(query: string, options?: SendOptions): AsyncIterable<Chunk>;
-  abort(): void;
-}
-```
-
-### 6.2 各 Agent 接入方式
-
-| Agent | 类型 | 接入方式 | 难点 |
-|-------|------|---------|------|
-| **Codex** | CLI | `codex exec "query"` | 无，输出干净 |
-| **Claude Code** | CLI | `claude` PTY + ANSI 过滤 | TUI 模式需绕过 |
-| **OpenClaw** | WebSocket | Gateway `ws://127.0.0.1:18789` | 异步回调需封装 |
-| **Hermes** | ? | 需调研确认 | 未知 |
-
-### 6.3 进程管理原则
-
-1. **进程隔离**：每个 CLI agent 独立子进程
-2. **超时机制**：默认 120s
-3. **流式回显**：chunk 到达即展示
-4. **优雅降级**：agent 离线时标记状态，不影响其他 agent
-
----
-
-## 七、存储设计（SQLite）
-
-### 7.1 表结构
+### 4.1 表结构
 
 ```sql
-CREATE TABLE tasks (
+CREATE TABLE assets (
   id TEXT PRIMARY KEY,
-  query TEXT NOT NULL,
-  mode TEXT NOT NULL,
-  agent_ids TEXT NOT NULL,
-  context TEXT,
-  results TEXT,
-  judge TEXT,
-  tags TEXT,
-  created_at INTEGER,
+  type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  provider TEXT,
+  plan TEXT,
+  scenes TEXT NOT NULL,
+  cost_mode TEXT NOT NULL,
+  status TEXT NOT NULL,
+  notes TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE missions (
+  id TEXT PRIMARY KEY,
+  goal TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  status TEXT NOT NULL,
+  progress INTEGER NOT NULL,
+  risk TEXT NOT NULL,
+  owner_needed INTEGER NOT NULL,
+  current_assignee TEXT,
+  next_action TEXT,
+  summary TEXT,
+  asset_ids TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
   completed_at INTEGER
 );
 
-CREATE TABLE judges (
+CREATE TABLE mission_events (
   id TEXT PRIMARY KEY,
-  task_id TEXT REFERENCES tasks(id),
-  ratings TEXT NOT NULL,
-  winner TEXT,
-  tags TEXT,
-  created_at INTEGER
+  mission_id TEXT NOT NULL REFERENCES missions(id),
+  type TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  content TEXT NOT NULL,
+  metadata TEXT,
+  created_at INTEGER NOT NULL
 );
 
-CREATE TABLE agent_profiles (
-  agent_id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  total_tasks INTEGER DEFAULT 0,
-  avg_score REAL,
-  capabilities TEXT,
-  scene_scores TEXT,
-  elo INTEGER DEFAULT 1500,
-  updated_at INTEGER
+CREATE TABLE supervisor_decisions (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id),
+  question TEXT NOT NULL,
+  decision TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  category TEXT NOT NULL,
+  escalated_to_owner INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
 );
 
-CREATE TABLE group_chats (
+CREATE TABLE evaluations (
   id TEXT PRIMARY KEY,
-  name TEXT,
-  agent_ids TEXT NOT NULL,
-  messages TEXT NOT NULL,
-  created_at INTEGER,
-  ended_at INTEGER
+  mission_id TEXT NOT NULL REFERENCES missions(id),
+  score TEXT NOT NULL,
+  comment TEXT NOT NULL,
+  asset_ids TEXT NOT NULL,
+  quality_notes TEXT,
+  cost_notes TEXT,
+  lessons TEXT,
+  created_at INTEGER NOT NULL
 );
 ```
 
+### 4.2 JSON 字段约定
+
+- `scenes`、`asset_ids` 存 JSON array。
+- `metadata` 存 JSON object。
+- v0.1 不做复杂迁移框架，启动时执行 `CREATE TABLE IF NOT EXISTS`。
+
 ---
 
-## 八、递归层扩展（预留）
+## 五、核心模块
 
-### 8.1 当前预留的扩展点
+### 5.1 AssetLedger
 
-- `Task` 已含 `parentTaskId` 字段（未使用）
-- `Agent` 可扩展 `children` 字段（未使用）
-- 通信层可扩展为 JSON-RPC over WebSocket（当前用本地函数调用）
+职责：
 
-### 8.2 递归节点接口（未来实现）
+- 新增、列出、查看、更新 AI 资产。
+- 按 scene / status / type 查询候选资产。
+- 为 Mission 记录使用过的资产。
+
+接口草案：
 
 ```typescript
-interface RecursiveAgent extends Agent {
-  report(taskId: string, result: Result): void;
-  delegate(task: Task): Promise<Result>;
-  children?: RecursiveAgent[];
-  parent?: RecursiveAgent;
+class AssetLedger {
+  addAsset(input: AddAssetInput): Promise<Asset>;
+  listAssets(filter?: AssetFilter): Promise<Asset[]>;
+  getAsset(id: string): Promise<Asset | undefined>;
+  updateAsset(id: string, patch: Partial<Asset>): Promise<Asset>;
+  findCandidates(goal: string): Promise<Asset[]>;
 }
 ```
 
+### 5.2 MissionStore
+
+职责：
+
+- 创建和更新 Mission。
+- 追加 MissionEvent。
+- 查询状态板所需数据。
+- 生成 Mission 复盘所需历史。
+
+接口草案：
+
+```typescript
+class MissionStore {
+  createMission(goal: string, assetIds?: string[]): Promise<Mission>;
+  getMission(id: string): Promise<Mission | undefined>;
+  listMissions(filter?: MissionFilter): Promise<Mission[]>;
+  updateMission(id: string, patch: Partial<Mission>): Promise<Mission>;
+  addEvent(input: AddMissionEventInput): Promise<MissionEvent>;
+  listEvents(missionId: string): Promise<MissionEvent[]>;
+}
+```
+
+### 5.3 Supervisor
+
+职责：
+
+- 判断下层确认请求是否需要升级给 Owner。
+- 对普通确认自动生成 Boss 代决策。
+- 记录每次代决策，便于复盘和 judge。
+
+v0.1 规则：
+
+| 类型 | 关键词/条件 | 行为 |
+|------|-------------|------|
+| money | 付费、购买、额度不足、billing、quota、token limit | 升级给 Owner |
+| permission | 登录、授权、API key、secret、private access | 升级给 Owner |
+| destructive | 删除、覆盖、发布、merge、外发消息、drop | 升级给 Owner |
+| normal | 测试、边界、说明、重试、格式、拆分 | Boss 默认代决策 |
+
+默认代决策：
+
+- 要不要加测试：加。
+- 要不要补边界：补。
+- 输出太虚：要求重做并给出可验证交付物。
+- 卡住：追问阻塞点、已尝试方案和下一步。
+- 方案太散：要求收敛成推荐方案和风险。
+
+接口草案：
+
+```typescript
+class Supervisor {
+  classify(question: string): DecisionCategory;
+  decide(mission: Mission, question: string): Promise<SupervisorDecision>;
+}
+```
+
+### 5.4 Reporter
+
+职责：
+
+- 输出老板视角的 status board。
+- 基于 Mission + events 生成随时汇报。
+- 默认折叠底层日志，只展示结果、风险、阻塞、资源和下一步。
+
+报告模板：
+
+```text
+当前不需要你介入。
+目标：{goal}
+进度：{progress}% / {stage}
+已完成：{summary from recent progress events}
+风险：{risk and blockers}
+资源：{assets}
+下一步：{nextAction}
+```
+
+### 5.5 EvaluationEngine
+
+职责：
+
+- `judge <missionId>` 评价 Mission。
+- 将评价写入 `evaluations`。
+- 更新资产表现：按 assetId、scene、score、comment 沉淀。
+
+v0.1 可以先记录 Evaluation，不实现复杂推荐算法。
+
 ---
 
-## 九、实现顺序
+## 六、CLI 设计
 
-| 阶段 | 内容 | 预计时间 |
-|------|------|---------|
-| **Phase 1** | Codex Adapter + CLI 骨架 | 1-2 天 |
-| **Phase 2** | SQLite 存储 + Task Store | 1 天 |
-| **Phase 3** | Router Engine + 场景标签 | 1-2 天 |
-| **Phase 4** | Claude Code Adapter（PTY） | 2-3 天 |
-| **Phase 5** | Judge Panel + ELO 评分 | 1-2 天 |
-| **Phase 6** | Result Collector（并排/diff） | 1-2 天 |
-| **Phase 7** | Group Chat | 1-2 天 |
-| **Phase 8** | OpenClaw Adapter | 1 天 |
-| **Phase 9** | 递归层 | 1-2 周 |
+### 6.1 assets
+
+```bash
+agent-boss assets list
+agent-boss assets show <assetId>
+agent-boss assets add <id> --type agent --name "Codex" --plan coding-plan --scenes code,refactor --cost subscription
+```
+
+输出示例：
+
+```text
+id           type    status   scenes          plan
+codex        agent   ready    code,refactor   coding-plan
+claude-code  agent   ready    review,design   pro
+```
+
+### 6.2 mission
+
+```bash
+agent-boss mission create "<goal>"
+agent-boss mission status
+agent-boss mission status <missionId>
+agent-boss mission report <missionId>
+agent-boss mission event <missionId> "<content>" --type progress --actor codex
+agent-boss mission decide <missionId> "<question>"
+agent-boss mission complete <missionId> "<summary>"
+```
+
+### 6.3 judge
+
+```bash
+agent-boss judge <missionId> <score> "<comment>" --assets codex,claude-code
+```
+
+## 七、端到端验收 Demo
+
+### 7.1 初始化资产
+
+```bash
+agent-boss assets add codex --type agent --name "Codex" --plan coding-plan --scenes code,refactor --cost subscription
+agent-boss assets add claude-code --type agent --name "Claude Code" --plan pro --scenes review,design --cost subscription
+agent-boss assets list
+```
+
+验收：
+
+- 两个资产被写入 SQLite。
+- `assets list` 展示 id、type、status、scenes、plan。
+
+### 7.2 创建 Mission
+
+```bash
+agent-boss mission create "重构登录模块，要求安全、可测试、不要大改架构"
+```
+
+验收：
+
+- 生成 `m-001`。
+- stage 为 `planning` 或 `executing`。
+- status 为 `active`。
+- 自动写入 `created` 和 `planned` 事件。
+- nextAction 不为空。
+
+### 7.3 记录进展和代决策
+
+```bash
+agent-boss mission event m-001 "codex 已完成初稿，但缺少测试" --type progress --actor codex
+agent-boss mission decide m-001 "Should I add tests for this refactor?"
+```
+
+验收：
+
+- Supervisor 分类为 `normal`。
+- 决策为“要求补测试，不升级给 Owner”。
+- `supervisor_decisions` 和 `mission_events` 均有记录。
+
+### 7.4 汇报状态
+
+```bash
+agent-boss mission status m-001
+agent-boss mission report m-001
+```
+
+验收：
+
+- 输出目标、阶段、进度、风险、当前执行者、下一步。
+- 报告明确说明是否需要用户介入。
+- 不展示冗长 agent 原始日志。
+
+### 7.5 完成和评价
+
+```bash
+agent-boss mission complete m-001 "登录模块重构完成，已补安全边界和测试"
+agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets codex,claude-code
+```
+
+验收：
+
+- Mission 状态变为 `completed`。
+- 写入 `completed`、`judged` 事件。
+- `evaluations` 有记录。
+- 后续可从该 Mission 复盘使用资产和质量评价。
 
 ---
 
-## 十、风险与假设
+## 八、实现顺序
 
-| 风险 | 影响 | 缓解方案 |
-|------|------|---------|
-| Claude Code TUI 无法程序化交互 | 高 | PTY 模拟 + ANSI 过滤 |
-| Hermes 接口不开放 | 高 | 先做 3 个 agent，Hermes 调研后补 |
-| 并发任务资源冲突 | 中 | 进程隔离 + 文件锁 |
-| SQLite 性能瓶颈（>10万条） | 低 | 未来可迁移到 PostgreSQL |
+### Phase 0：归档旧代码并重建 src
+
+- 移动现有 `src/` 到 `archive/src-v0.3-task-router/`。
+- 新建干净的 `src/` 目录。
+- 新入口只暴露 v0.4 CLI：`assets`、`mission`、`judge`。
+- 暂不实现旧 `ask` 命令，避免产品主线继续滑回 query router。
+
+### Phase 1：存储与类型
+
+- 新增 v0.4 类型：Asset、Mission、MissionEvent、SupervisorDecision、Evaluation。
+- 新增 SQLite 初始化和基础 repository。
+- 不导入 v0.3 类型，不建立 compatibility layer。
+
+### Phase 2：Asset Ledger
+
+- 实现 `assets add/list/show`。
+- 支持 scene、costMode、status。
+- 写入和读取 SQLite。
+
+### Phase 3：Mission Store + CLI
+
+- 实现 `mission create/status/event/complete`。
+- Mission create 自动写入初始 events。
+- Status board 使用 Mission 当前字段。
+
+### Phase 4：Supervisor + Reporter
+
+- 实现 `mission decide`。
+- 实现规则分类和代决策记录。
+- 实现 `mission report`。
+
+### Phase 5：Judge
+
+- 将 `judge` 扩展为支持 missionId。
+- 写入 Evaluation。
+- 简单更新资产表现或先记录 events。
+
+### Phase 6：全新接入真实 Agent
+
+- 支持 `mission run <id> --asset codex`。
+- 为 Codex / Claude / OpenClaw 按 v0.4 `MissionRunner` 接口重写 adapter。
+- adapter 自动写入 MissionEvent：assigned、progress、blocked、completed、failed。
 
 ---
 
-*本技术方案由 大雄（kimi-2.5）基于 PRD v0.3 推导，整合架构 v1.0 + 核心模块 v1.1 + 适配层 v1.2 + 递归层 v1.3，日期 2026-04-29。当前需按 PRD v0.4 重新对齐。*
+## 九、风险与取舍
+
+| 风险 | 影响 | v0.1 取舍 |
+|------|------|----------|
+| 自动监工过早智能化 | 行为不稳定 | 先用规则，不接 LLM 决策 |
+| 真实账单接入复杂 | 拖慢 MVP | 先做手动资产台账 |
+| 旧代码继续影响方向 | 产品主线跑偏 | Phase 0 直接归档旧 `src/`，从 v0.4 重写 |
+| SQLite schema 未来变化 | 迁移成本 | v0.1 简单 `CREATE IF NOT EXISTS`，后续再加 migrations |
+| 下层 Agent 状态不可观测 | 无法真监工 | v0.1 先支持手动 event，后续 adapter 自动写 event |
+
+---
+
+## 十、后续演进
+
+v0.1 证明 Mission 监工闭环：
+
+```text
+资产登记 -> 创建 Mission -> 记录事件 -> Boss 代决策 -> 汇报 -> 完成 -> judge
+```
+
+v0.2 引入真实执行：
+
+- `mission run`
+- adapter 自动产出 progress / blocked / completed events
+- 资产使用自动记录
+
+v0.3 引入智能选择：
+
+- 基于 Evaluation 推荐 agent/model/plan
+- 成本、质量、速度排行
+- Owner 偏好学习
+
+v1.0 再进入 Agent 公司：
+
+- Personal Boss / Department Boss / CEO Boss
+- 跨 Boss 委派
+- 组织记忆继承
+- 公司级报告
+
+---
+
+*本技术方案专注 PRD v0.4 的 P0 可执行蓝图：先归档旧代码，再从零实现本地 CLI 任务监工台，随后按新接口接入真实 Agent 自动执行。*
