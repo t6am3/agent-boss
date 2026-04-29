@@ -2,9 +2,11 @@
 
 > 版本：v1.0
 > 日期：2026-04-29
-> 状态：活跃
+> 状态：待对齐（基于 PRD v0.3，需按 PRD v0.4 重写）
 > 作者：大雄（kimi-2.5）
-> 基于：PRD v0.3
+> 基于：PRD v0.3（已归档）
+
+> 注意：PRD v0.4 已将产品核心从“多 Agent 编排器”调整为“AI 监工台”。本文档当前仅作为历史技术参考，不能作为最新实现依据；下一版 TECH-SPEC 需要围绕 `Mission`、`Asset Ledger`、`Supervisor Policy` 和 `Mission Status Board` 重新对齐。
 
 ---
 
@@ -400,4 +402,4 @@ interface RecursiveAgent extends Agent {
 
 ---
 
-*本技术方案由 大雄（kimi-2.5）基于 PRD v0.3 推导，整合架构 v1.0 + 核心模块 v1.1 + 适配层 v1.2 + 递归层 v1.3，日期 2026-04-29。*
+*本技术方案由 大雄（kimi-2.5）基于 PRD v0.3 推导，整合架构 v1.0 + 核心模块 v1.1 + 适配层 v1.2 + 递归层 v1.3，日期 2026-04-29。当前需按 PRD v0.4 重新对齐。*

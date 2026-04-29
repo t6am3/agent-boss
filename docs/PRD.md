@@ -1,258 +1,485 @@
-# Agent Boss — 产品需求文档 (PRD v0.3)
+# Agent Boss — 产品需求文档 (PRD v0.4)
 
-> 版本：v0.3
-> 日期：2026-04-28
-> 状态：活跃
-> 作者：刘幼峰 + 大雄
+> 版本：v0.4
+> 日期：2026-04-29
+> 状态：活跃草案
+> 作者：刘幼峰 + Codex
+> 核心变化：从多 Agent 编排器转向 AI 监工台
 
 ---
 
-## 一、核心洞察
+## 一、核心动机
 
-### 1.1 现状痛点
+### 1.1 真实痛点
 
-我现在同时使用 4 个 AI Agent 产品：
-- **Codex** — 写代码，OpenAI 的
-- **Claude Code** — 写代码 + 复杂推理，Anthropic 的
-- **OpenClaw** — 自动化任务、飞书集成
-- **Hermes** — 字节内部 agent 框架
+我已经拥有一堆 AI 劳动力和模型资产：
 
-**核心问题不是"工具多"，而是：**
-1. **Agent 之间互相不认识** — Claude 不知道 Codex 做了什么，Codex 不知道 OpenClaw 发了什么消息
-2. **没有记忆积累** — 上次 Claude 在这个场景下表现更好，但系统没记住
-3. **没有竞争机制** — 永远是我手动选，而不是系统基于历史表现自动推荐
-4. **无法组织协作** — 想让两个 agent 讨论一个方案，只能靠我人肉传话
+- 多个智能体：Codex、Claude Code、OpenClaw、Hermes 等
+- 多个模型或模型入口：不同 provider、不同上下文能力、不同价格和速度
+- 多个 coding plan / token / 订阅额度
+- 多个 UI 和运行环境：终端、网页、IDE、内部平台、飞书等
+
+但这些资产没有被集中管理，也没有形成可复用的经验：
+
+1. **资产分散**：我买了很多 token、plan、模型和工具，但不知道什么时候该用谁、还剩多少、花得值不值。
+2. **派发成本高**：每次有一个 query，我还要决定发给谁、打开哪个 UI、复制上下文、等待结果。
+3. **结果不沉淀**：每次任务完成后，没有统一记录谁做得好、为什么好、成本多少、下次该不该继续用。
+4. **下层 Agent 喜欢打断我**：很多任务卡住，不是因为没法做，而是 agent 把琐碎确认丢回给我。
+5. **协作不像管理**：现有多 agent 系统往往是固定流程，不像人类管理者会追问进度、驳回低质量输出、调整分工、持续改进。
 
 ### 1.2 一句话定义
 
-**Agent Boss = Agent 的竞技场 + 记忆系统 + 组织管理**
+**Agent Boss 是管理 AI 劳动力和模型资产的任务监工台。**
+
+用户像老板一样提出目标；Agent Boss 像管理者一样负责过程：组织资源、派发任务、追问进度、拦截琐事、验收结果、汇报风险，并把每次经验沉淀下来。
+
+### 1.3 产品立场
+
+Agent Boss 不是一个更热闹的多 Agent 聊天室，也不是简单的 `ask all`。
+
+它要解决的问题是：
+
+> 我提出目标以后，谁来替我管理这些 AI 劳动力，把任务持续推到完成？
 
 ---
 
-## 二、核心需求（5 条）
+## 二、产品定义
 
-### 需求 1：统一入口
-**用户故事**：我打开一个终端/界面，输入一个问题，系统自动决定发给谁（或让我选择）。我不需要记住"这个该问 Claude 还是 Codex"。
+### 2.1 老板只提目标，Boss 管过程
 
-**验收标准**：
-- `ask "优化这段 SQL"` → 系统基于历史表现推荐最佳 agent
-- `ask claude "优化这段 SQL"` → 明确指定发给 Claude
-- `ask all "优化这段 SQL"` → 发给所有可用 agent
+用户不应该被迫思考：
 
-### 需求 2：A/B 对比
-**用户故事**：我想让 Claude 和 Codex 同时写一个函数，然后对比谁的实现更简洁、更安全。
+- 这个任务该给 Claude 还是 Codex？
+- 该用哪个模型、哪个 plan、哪个 UI？
+- 下层 agent 问“要不要加测试”时怎么回复？
+- 卡住半小时以后要不要催？
+- 两个结果哪个更值得沉淀？
 
-**验收标准**：
-- 多发后并排展示结果
-- 支持 diff 视图
-- 显示各 agent 的耗时、token 消耗
+这些应该由 Agent Boss 处理。用户只在资源、权限、破坏性操作或战略目标变化时介入。
 
-### 需求 3：评判积累（核心中的核心）
-**用户故事**：我看到两个 agent 的回答后，给 Claude 打 A+（"考虑到了边界情况"），给 Codex 打 B（"代码更短但漏了错误处理"）。下次类似问题，系统优先推荐 Claude。
+### 2.2 核心对象从 Query 升级为 Mission
 
-**验收标准**：
-- `judge 1 A+ "考虑到了并发"` → 评分写入系统
-- `leaderboard` → 按场景看各 agent 平均分
-- 系统自动基于历史评分推荐 agent
+`ask` 是一次提问；`Mission` 是一个需要被管理到结束的目标。
 
-### 需求 4：Agent 互相认识
-**用户故事**：我让 Claude 和 Codex 讨论"这个模块该用什么设计模式"，它们能在同一个对话里互相反驳、补充，不需要我做传话筒。
+一个 Mission 至少包含：
 
-**验收标准**：
-- `group claude+codex "讨论架构"` → 两个 agent 自由讨论
-- 讨论记录完整保存
-- 我可以随时介入或终止
+| 字段 | 含义 |
+|------|------|
+| 目标 | 用户真正要完成的事情 |
+| 当前阶段 | 理解、计划、执行、验证、汇报、复盘 |
+| 执行资源 | 使用了哪些 agent、模型、plan、工具 |
+| 状态 | 进行中、阻塞、待资源、待验收、完成、失败 |
+| 风险 | 质量风险、进度风险、资源风险、权限风险 |
+| 下一步 | Boss 准备如何继续推进 |
+| 结果 | 最终交付物、过程评价、可沉淀经验 |
 
-### 需求 5：递归管理
-**用户故事**：我是一个小组长，管理 5 个每个人各自的 Agent Boss。我收到一个项目需求，拆解后委派给各个人 Boss，它们各自调用自己的 agent 完成，结果汇总给我。
+`ask/query` 保留为轻量快捷入口，但不再是产品核心。
 
-**验收标准**：
-- `delegate "前端组" "完成登录页"` → 前端组 Boss 自动拆解给下属
-- `tree` → 查看完整组织架构
-- 结果逐层上报，自动合并
+### 2.3 管理循环
 
----
+Agent Boss 的基本循环不是固定流水线，而是动态管理：
 
-## 三、拓展方向
-
-### 3.1 路由策略（从手动到自动）
-
-**现状**：用户手动选 agent（`ask claude`）
-
-**拓展**：
-- **历史优先**：基于评判记录，自动推荐该场景下表现最好的 agent
-- **竞争上岗**：新类型问题，先让 2-3 个 agent 试做，用户评判后确定"这个领域谁最强"
-- **混合策略**：复杂任务自动拆解为子任务，不同子任务分配给不同 agent
-
-**示例**：
-```
-用户：ask "写个带缓存的 HTTP 客户端"
-系统：
-  1. 分析历史记录："HTTP"相关任务 Claude 评分 A+，Codex 评分 B
-  2. 自动推荐 Claude，但提示"需要 Codex 补充单元测试吗？"
-  3. 或自动拆解：Claude 写主逻辑 + Codex 写测试
+```text
+理解目标 -> 组织资源 -> 派发任务 -> 追问进度 -> 挑错验收 -> 汇报结果 -> 复盘沉淀
 ```
 
-### 3.2 Agent 画像（从黑盒到透明）
+Boss 可以根据任务状态调整策略：
 
-**现状**：每个 agent 是黑盒，不知道它擅长什么
-
-**拓展**：
-- 每个 agent 积累"擅长领域"标签（基于评判记录）
-- `profile claude` → "擅长：架构设计、边界处理、Python；弱项：快速原型"
-- 可视化能力雷达图
-
-### 3.3 组织学习（从人到系统）
-
-**现状**：只有用户记得"上次 Claude 更好"
-
-**拓展**：
-- 系统记住所有评判，形成"组织记忆"
-- 新成员加入时，继承组织记忆（"这类问题通常交给 Claude"）
-- 定期生成"Agent 表现报告"，发现能力退化/进步
-
-### 3.4 成本意识（从无视到优化）
-
-**现状**：不知道哪个 agent 更贵
-
-**拓展**：
-- 追踪每个 agent 的 API 调用成本
-- `leaderboard --sort cost` → 性价比排行
-- 预算告警："本月 Claude 消耗 $50，Codex $20"
-
-### 3.5 工作流编排（从单次到流水线）
-
-**现状**：每次一个独立 query
-
-**拓展**：
-- 定义流水线：`设计 → 编码 → 测试 → Review`
-- 每个节点自动选择合适的 agent
-- 支持条件分支：`if 测试失败 then 返回编码阶段`
+- 下层 agent 跑偏：驳回并要求重做
+- 下层 agent 卡住：追问原因、补充上下文、改派其他 agent
+- 输出质量不足：要求 reviewer 或 tester 补充验证
+- 资源不足：向用户升级
+- 成本过高：换更便宜的模型或降级策略
 
 ---
 
-## 四、功能清单（精简版）
+## 三、核心概念
 
-### P0 — MVP（个人级，1 周）
+### 3.1 Owner
 
-| # | 功能 | 对应需求 |
-|---|------|---------|
-| 1 | Agent 自动发现 | 需求 1 |
-| 2 | 单发 / 多发 Query | 需求 1 + 2 |
-| 3 | 结果并排展示 + diff | 需求 2 |
-| 4 | 评判打分 + leaderboard | 需求 3 |
-| 5 | 群组讨论 | 需求 4 |
+Owner 是用户，是老板。
 
-### P1 — 增强（个人级，1 周）
+Owner 负责：
 
-| # | 功能 | 对应拓展 |
-|---|------|---------|
-| 6 | 自动推荐（基于历史评分） | 3.1 路由策略 |
-| 7 | Agent 画像 | 3.2 Agent 画像 |
-| 8 | 成本追踪 | 3.4 成本意识 |
+- 提目标
+- 设定偏好和边界
+- 提供必要资源和权限
+- 在关键节点验收
 
-### P2 — 递归层（组织级，1-2 周）
+Owner 不负责：
 
-| # | 功能 | 对应需求 |
-|---|------|---------|
-| 9 | Boss 注册 / 树形视图 | 需求 5 |
-| 10 | 任务委派 / 自动拆解 | 需求 5 |
-| 11 | 结果上报 / 合并 | 需求 5 |
+- 替下层 agent 做琐碎产品/工程判断
+- 反复复制上下文
+- 追问每个 agent 的进度
+- 手动整理每次任务经验
 
-### P3 — 高级（未来）
+### 3.2 Boss
 
-| # | 功能 | 对应拓展 |
-|---|------|---------|
-| 12 | 工作流编排（YAML） | 3.5 流水线 |
-| 13 | 组织记忆继承 | 3.3 组织学习 |
-| 14 | Web Dashboard | — |
-| 15 | 飞书集成 | — |
+Boss 是 Agent Boss 的管理层。
+
+Boss 负责：
+
+- 维护 AI 资产台账
+- 判断任务该用哪些资源
+- 派发和监督下层 agent
+- 拦截琐碎确认
+- 定期或按需汇报
+- 更新结果评估和组织记忆
+
+### 3.3 Worker Agent
+
+Worker Agent 是被管理的 AI 劳动力，例如 Codex、Claude Code、OpenClaw、Hermes。
+
+Worker Agent 不是按钮，而是可被评估的员工：
+
+- 有擅长场景
+- 有使用成本
+- 有历史表现
+- 有可用状态
+- 有失败模式
+
+### 3.4 Model / Plan
+
+Model / Plan 是 Agent 可用的脑力和额度资源。
+
+同一个 Agent 可能支持多个模型或 plan；同一个模型也可能通过不同入口使用。Agent Boss 需要记录：
+
+- 模型名称和 provider
+- 上下文能力、速度、质量倾向
+- token 或 coding plan 额度
+- 费用、限制、可用窗口
+- 适合什么任务，不适合什么任务
+
+### 3.5 Asset Ledger
+
+Asset Ledger 是 AI 资产台账。
+
+P0 阶段采用手动登记，不直接对接真实账单。至少记录：
+
+| 资产 | 示例 |
+|------|------|
+| Agent | codex、claude-code、openclaw、hermes |
+| Model | gpt-5、claude、gemini、deepseek、本地模型 |
+| Plan | coding plan、API token、内部额度 |
+| 成本偏好 | 便宜优先、质量优先、速度优先、稳妥优先 |
+| 适用场景 | 写代码、review、查资料、自动化、飞书、内部系统 |
+| 历史表现 | 任务数、成功率、质量评分、常见失败原因 |
+
+### 3.6 Supervisor Policy
+
+Supervisor Policy 定义 Boss 什么时候可以自主推进，什么时候必须问 Owner。
+
+默认原则：
+
+- **默认代决策**：Boss 处理下层 agent 的琐碎确认，不把噪音推给 Owner。
+- **默认追进度**：Boss 对卡住、低质量、跑偏的任务保持焦虑，并主动推进。
+- **默认只汇报结果和风险**：执行细节可展开，但不默认打扰 Owner。
+
+必须升级给 Owner 的情况：
+
+1. **钱**：新增付费、购买额度、明显超预算、消耗高价值 plan。
+2. **权限**：登录账号、授权访问、需要用户提供密钥或私有系统权限。
+3. **破坏性操作**：删除、覆盖、外发消息、合并代码、发布上线等不可轻易回滚的动作。
+
+### 3.7 Report
+
+Report 是老板视角的汇报，不是 agent 聊天记录。
+
+一次汇报应该回答：
+
+- 目标是什么
+- 已完成多少
+- 当前卡在哪里
+- 风险是什么
+- 用了哪些 agent/model/plan
+- 下一步怎么推进
+- 需要 Owner 做什么，如果没有就明确说“不需要你介入”
 
 ---
 
-## 五、CLI 设计（用户视角）
+## 四、核心需求
+
+### 需求 1：AI 资产集中管理
+
+**用户故事**：我买了很多模型 token、coding plan 和 agent 服务，希望有一个地方统一登记、查看和规划使用。
+
+**验收标准**：
+
+- `assets list` 能看到已登记的 agent、model、plan、用途、状态。
+- `assets add` 能手动登记一个 agent/model/plan。
+- 每次 Mission 记录实际使用了哪些资产。
+- 后续可以按成本、质量、速度、任务类型做分析。
+
+### 需求 2：Mission 创建与任务监工
+
+**用户故事**：我只输入目标，比如“帮我重构登录模块”，Boss 应该创建 Mission，判断怎么推进，而不是马上问我一堆实现细节。
+
+**验收标准**：
+
+- `mission create "帮我重构登录模块"` 创建可追踪任务。
+- Boss 生成初始计划、阶段、风险和下一步。
+- Boss 自主选择合适 agent/model/plan 的候选组合。
+- Mission 有明确状态：进行中、阻塞、待资源、待验收、完成、失败。
+
+### 需求 3：终端状态板
+
+**用户故事**：我想像老板看项目进度一样，看当前每个 Mission 到哪了、有没有风险、要不要我介入。
+
+**验收标准**：
+
+- `mission status` 展示所有 Mission 的目标、阶段、完成度、风险、资源消耗、下一步。
+- `mission status <id>` 展示单个 Mission 的详细状态。
+- 默认展示结果和风险，下层 agent 日志默认折叠。
+- 用户随时问“现在做到哪了？”，Boss 能给出简明汇报。
+
+### 需求 4：琐碎确认拦截
+
+**用户故事**：下层 agent 经常问“要不要加测试”“要不要处理这个边界”“选 A 还是 B”。这些问题不应该打断我，Boss 应该根据默认偏好和任务目标自己决定。
+
+**验收标准**：
+
+- 下层 agent 请求确认时，Boss 先判断是否属于钱、权限、破坏性操作。
+- 如果不是，Boss 自主回复并继续推进。
+- Boss 记录自己做过的关键代决策，便于事后复盘。
+- 用户可以在 Mission 结束后评价这些代决策是否符合偏好。
+
+### 需求 5：进度追问与质量验收
+
+**用户故事**：很多任务卡在一半，是因为 agent 停下来等我，或者给了半成品。Boss 应该像管理者一样持续追问和验收。
+
+**验收标准**：
+
+- Boss 能识别 agent 长时间无进展、输出不完整、偏离目标、缺少验证。
+- Boss 可以追问 agent 当前阻塞和下一步。
+- Boss 可以要求补充测试、补充说明、重做、找另一个 agent review。
+- Boss 在汇报中标注质量判断和剩余风险。
+
+### 需求 6：结果评估与沉淀
+
+**用户故事**：任务完成后，我希望知道这次谁做得好、用了多少资源、下次类似任务应该怎么派。
+
+**验收标准**：
+
+- `judge <missionId>` 能评价结果质量、代决策、成本是否值得。
+- 系统更新 agent/model/plan 在场景下的表现。
+- Mission 结束后生成复盘：做法、结果、成本、质量、经验、下次建议。
+- 历史记录可用于后续智能选择。
+
+---
+
+## 五、P0 MVP
+
+P0 的目标不是做一个完整 Agent 公司，而是先让个人老板视角成立。
+
+| # | 功能 | 说明 |
+|---|------|------|
+| 1 | Asset Ledger | 手动登记 AI 资产：agent、model、plan、用途、成本偏好 |
+| 2 | Mission 创建 | 用户输入目标，Boss 创建可追踪任务 |
+| 3 | Mission Status Board | 终端状态板展示进度、风险、资源、下一步 |
+| 4 | Supervisor Policy | 默认代决策，只在钱/权限/破坏性操作上升级 |
+| 5 | 进度追问 | Boss 对卡住、跑偏、低质量输出进行追问或驳回 |
+| 6 | 结果评估 | 记录质量、成本、使用资产、用户 judge 和可沉淀经验 |
+
+P0 明确不做：
+
+- Web Dashboard
+- 真实账单自动对接
+- 多 Boss 递归组织
+- 复杂工作流 DSL
+- 完整企业权限系统
+
+---
+
+## 六、P1 / P2 路线
+
+### P1：更聪明的个人 Boss
+
+- 智能选择 agent/model/plan
+- 按成本、质量、速度做排行
+- 学习 Owner 偏好：稳妥优先、速度优先、低成本优先、少打扰优先
+- 定期生成 AI 资产使用报告
+- 对长期低质量或高成本 agent 发出调整建议
+
+### P2：Agent 公司雏形
+
+- Personal Boss 管理个人 AI 资产和任务
+- Department Boss 管理多个 Personal Boss
+- CEO Boss 管理多个 Department Boss
+- 支持跨 Boss 委派、上报、合并结果和组织记忆
+- 形成真正的 agent 公司：目标自上而下，结果逐层上报
+
+---
+
+## 七、CLI 设计（老板视角）
 
 ```bash
-# === 基础查询 ===
-> ask "优化这段 SQL"
-💡 基于历史记录，推荐 Claude（上次 SQL 优化评分 A+）
-[Claude] 开始处理...
-[Claude] ✅ 完成（12s, 3200 tokens）
+# === 资产台账 ===
+> assets list
+agent        model/plan        status   scenes              note
+codex        coding-plan       ready    code, refactor      fast implementation
+claude-code  pro-plan          ready    review, design      strong reasoning
+openclaw     local gateway     ready    automation, feishu  tool execution
 
-> ask claude,codex "写个 LRU 缓存"
-[Claude] ✅ 完成（15s）
-[Codex]  ✅ 完成（8s）
+> assets add agent codex --plan coding-plan --scenes code,refactor --cost monthly
 
-> compare 1,2
-┌──────────────┬──────────────┐
-│ Claude       │ Codex        │
-├──────────────┼──────────────┤
-│ 120 行       │ 80 行        │
-│ 含线程安全   │ 无锁设计     │
-│ 边界处理完善 │ 漏了空值检查 │
-└──────────────┴──────────────┘
+# === 创建 Mission ===
+> mission create "帮我重构登录模块，要求安全、可测试、不要大改架构"
+Mission m-001 created
+Boss plan:
+- Goal: 重构登录模块
+- Strategy: implementation + review + verification
+- Candidate resources: codex, claude-code
+- Owner intervention: not needed
 
-> judge 1 A  "太长了，但正确"
-> judge 2 B+ "简洁，但漏边界"
-> leaderboard sql-optimization
-1. Claude   A+  (5 次)
-2. Codex    B   (3 次)
+# === 状态板 ===
+> mission status
+id      stage       progress   risk       current       next
+m-001   executing   45%        medium     codex         review auth edge cases
+m-002   waiting     10%        resource   openclaw      need login permission
 
-# === 群组讨论 ===
-> group claude+codex "用策略模式还是观察者？"
-[Claude] 策略模式更好，因为...
-[Codex]  但观察者能解耦...
-[Claude] 解耦是好，但性能...
-> group stop
-📄 讨论记录已保存
+> mission status m-001
+Goal: 重构登录模块，要求安全、可测试、不要大改架构
+Stage: executing
+Progress: 45%
+Current: codex implementing service refactor
+Risk: medium - auth edge cases not verified
+Resources: codex/coding-plan, claude-code/pro-plan
+Next: ask claude-code to review security and tests
+Owner needed: no
 
-# === 递归管理（P2）===
-> tree
-CEO-Boss (你)
-├── 前端-Boss (Alice)
-│   ├── dev1: claude+codex
-│   └── dev2: claude+codex
-├── 后端-Boss (Bob)
-└── 算法-Boss (Carol)
+# === 随时汇报 ===
+> mission report m-001
+当前不需要你介入。
+已完成：登录流程梳理、主要重构草案。
+正在做：实现代码并补测试。
+风险：权限边界和异常路径需要 review。
+下一步：让 claude-code 做安全 review，再让 codex 修复。
 
-> delegate "前端-Boss" "重构登录页"
-[前端-Boss] 收到，拆解为：
-  - dev1: UI 组件
-  - dev2: API 对接
-[前端-Boss] ✅ 全部完成，上报结果...
+# === 评估沉淀 ===
+> judge m-001 A "安全边界处理好，测试补得完整，成本可以接受"
+Profile updated:
+- codex: refactor implementation +1
+- claude-code: security review +1
+- preference: quality over brevity for auth-related tasks
 ```
+
+`ask` 可以继续存在，但定位为快捷命令：
+
+```bash
+> ask "解释这段报错"
+```
+
+复杂目标应进入 Mission。
 
 ---
 
-## 六、成功指标
+## 八、验收场景
+
+### 场景 1：用户只提目标
+
+用户输入：
+
+```bash
+mission create "帮我重构登录模块"
+```
+
+期望：
+
+- Boss 创建 Mission。
+- Boss 选择 agent/model/plan 候选。
+- Boss 不先问“要不要加测试”“用什么风格”“先改哪一层”。
+- Boss 给出计划和当前下一步。
+
+### 场景 2：下层 agent 提琐碎确认
+
+下层 agent 问：
+
+```text
+Should I add tests for this refactor?
+```
+
+期望：
+
+- Boss 判断这不是钱、权限、破坏性操作。
+- Boss 根据默认质量标准要求加测试。
+- 用户不被打扰。
+- Mission 复盘中记录这次代决策。
+
+### 场景 3：资源问题升级
+
+下层 agent 需要登录、购买额度、访问私有系统或删除文件。
+
+期望：
+
+- Boss 暂停相关动作。
+- Boss 向用户汇报为什么需要介入、可选方案、风险。
+- 在用户授权前不继续执行高风险动作。
+
+### 场景 4：用户随时问进度
+
+用户问：
+
+```bash
+mission report m-001
+```
+
+期望：
+
+- Boss 汇报目标、完成度、阻塞、风险、资源消耗和下一步。
+- 如果不需要用户介入，明确说不需要。
+- 不默认展示下层 agent 的长对话。
+
+### 场景 5：任务结束复盘
+
+Mission 完成后：
+
+- Boss 给出最终结果和质量判断。
+- Boss 列出使用的 agent/model/plan。
+- Boss 记录耗时、成本、风险处理和代决策。
+- 用户 judge 后，系统更新后续推荐依据。
+
+---
+
+## 九、成功指标
 
 | 指标 | 目标 |
 |------|------|
-| 用户切换终端次数 | 从 4 次/任务 → 1 次 |
-| 评判记录数 | > 50 条后自动推荐准确率 > 80% |
-| 群组讨论使用频率 | 每周 > 3 次 |
-| 递归层级 | 支持 3 层（个人→团队→公司） |
+| UI 切换次数 | 从多个 agent UI 手动切换下降到主要使用 Agent Boss |
+| 无效确认次数 | 琐碎确认由 Boss 拦截，用户只处理资源/权限/破坏性问题 |
+| Mission 完成率 | 任务不再因 agent 等待用户琐事确认而卡住 |
+| 汇报可用性 | 用户随时询问进度时，Boss 能给出老板视角摘要 |
+| 资产沉淀 | 每次 Mission 记录 agent/model/plan 使用和质量评价 |
+| 推荐准确性 | 历史数据积累后，Boss 能更准确选择资源 |
 
 ---
 
-## 七、竞品对比
+## 十、长期愿景
 
-| 维度 | claude_code_bridge | Crewly | AutoGen | **Agent Boss** |
-|------|-------------------|--------|---------|----------------|
-| 路由 | ✅ 手动 | ✅ 手动 | ❌ | ✅ **自动推荐** |
-| 评判 | ❌ | ❌ | ❌ | ✅ **核心功能** |
-| 群组 | ✅ 广播 | ⚠️ 任务型 | ✅ | ✅ **自由讨论** |
-| 递归 | ❌ | ❌ | ❌ | ✅ **树型组织** |
-| 记忆 | ❌ | ❌ | ❌ | ✅ **组织学习** |
+Agent Boss 最终可以拓展成真正的 Agent 公司。
+
+短期：
+
+- 管理个人 AI 资产
+- 管理个人 Mission
+- 形成任务、资产、质量、成本的闭环
+
+中期：
+
+- 多个 Boss 之间委派任务
+- 每个 Boss 有自己的资产台账和偏好
+- 任务逐层上报，结果逐层验收
+
+长期：
+
+- CEO Boss 提目标
+- Department Boss 拆解并组织资源
+- Personal Boss 管理具体 agent 和模型
+- 组织记忆沉淀为公司级 AI 劳动力管理系统
+
+核心不变：
+
+> Owner 提目标，Boss 管过程，Worker Agent 做执行，系统沉淀判断力。
 
 ---
 
-## 八、下一步
-
-1. 确认 v0.3 PRD 核心需求是否准确
-2. 开始 Milestone 1：个人级 MVP（5 个 P0 功能）
-3. 技术方案（TECH-SPEC）后续单独写，基于 PRD 推导
-
----
-
-*本 PRD 专注"用户要什么"，不涉技术实现。技术方案另起文档。*
+*本 PRD 专注产品定义和 MVP 边界，不涉及具体技术实现。技术方案需基于 v0.4 重新对齐。*
