@@ -12,22 +12,31 @@
     "dev": "tsx src/cli.ts",
     "test": "jest"
   },
-  "keywords": ["agent", "orchestrator", "multi-agent", "claude", "codex", "openclaw", "recursive"],
+  "keywords": [
+    "agent",
+    "orchestrator",
+    "multi-agent",
+    "claude",
+    "codex",
+    "openclaw",
+    "recursive"
+  ],
   "author": "刘幼峰",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.3.0",
-    "tsx": "^4.7.0",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.19.39",
+    "@types/ws": "^8.18.1",
     "jest": "^29.7.0",
-    "@types/jest": "^29.5.0"
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "node-pty": "^1.0.0",
-    "ws": "^8.16.0",
-    "js-yaml": "^4.1.0",
     "ink": "^4.4.0",
+    "js-yaml": "^4.1.0",
+    "node-pty": "^1.0.0",
     "react": "^18.2.0",
-    "sqlite3": "^5.1.6"
+    "sqlite3": "^5.1.6",
+    "ws": "^8.16.0"
   }
 }

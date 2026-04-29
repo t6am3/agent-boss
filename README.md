@@ -46,7 +46,19 @@ CEO Boss ──→ 部门 Boss ──→ 个人 Boss ──→ Worker Agent
 
 ## 状态
 
-🚧 开发中 — Milestone 1 (个人级 MVP) 即将启动
+✅ **Milestone 1 (个人级 MVP) 代码骨架已完成** — 2026-04-29
+
+- 核心模块：RouterEngine / JudgePanel / ResultCollector / AgentBoss
+- 适配器：Codex ✅ / Claude Code ✅ / OpenClaw ⚠️ 骨架
+- CLI：完整命令解析
+- 编译验证：⚠️ TypeScript 安装受阻（Node 25 / bnpm 兼容性问题），需手动处理
+
+### 已知问题
+
+- `npm install` 无法安装 `typescript` devDependency（Node v25.8.1 + npm 11.11.0 + bnpm 镜像），导致 `tsc` 编译验证阻塞
+- 已修复 3/4 类型错误：`spawn` 导入、`code`/`err` 参数类型
+- 待安装 `@types/ws`（已加入 devDependencies）
 
 ---
+
 *作者: 刘幼峰 + 大雄*

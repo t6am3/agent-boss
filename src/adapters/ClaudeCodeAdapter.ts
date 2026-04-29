@@ -1,4 +1,5 @@
 import { IPty, spawn as spawnPty } from "node-pty";
+import { spawn } from "child_process";
 import stripAnsi from "strip-ansi";
 import { Agent, AgentStatus, Chunk, SendOptions } from "./AgentAdapter";
 
@@ -23,7 +24,7 @@ export class ClaudeCodeAdapter implements Agent {
     try {
       await new Promise<void>((resolve, reject) => {
         const check = spawn("which", ["claude"]);
-        check.on("close", (code) => {
+        check.on("close", (code: number | null) => {
           code === 0 ? resolve() : reject(new Error("claude not found"));
         });
       });

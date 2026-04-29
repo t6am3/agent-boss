@@ -105,7 +105,7 @@ export class OpenClawAdapter implements Agent {
           resolve();
         });
 
-        ws.on("error", (err) => {
+        ws.on("error", (err: Error) => {
           clearTimeout(timer);
           reject(err);
         });
