@@ -53,11 +53,13 @@ CEO Boss ──→ 部门 Boss ──→ 个人 Boss ──→ Worker Agent
 - CLI：完整命令解析
 - 编译验证：⚠️ TypeScript 安装受阻（Node 25 / bnpm 兼容性问题），需手动处理
 
-### 已知问题
+### 已知问题（已解决 ✅）
 
-- `npm install` 无法安装 `typescript` devDependency（Node v25.8.1 + npm 11.11.0 + bnpm 镜像），导致 `tsc` 编译验证阻塞
-- 已修复 3/4 类型错误：`spawn` 导入、`code`/`err` 参数类型
-- 待安装 `@types/ws`（已加入 devDependencies）
+- ~~TypeScript 编译验证：Node 25 + npm 11 + bnpm 镜像导致 `tsc` 安装受阻~~
+- **根因**：`npm config` 全局设置了 `omit=["dev"]`，导致所有 devDependencies 被跳过
+- **解决**：`npm install --omit=none` 覆盖该配置
+- **验证**：`tsc --noEmit` 0 errors，`tsx src/cli.ts --help` 正常启动
+- `@types/ws` 已正确安装
 
 ---
 
