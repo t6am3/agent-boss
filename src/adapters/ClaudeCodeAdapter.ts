@@ -1,36 +1,27 @@
-import { IPty, spawn as spawnPty } from "node-pty";
 import { spawn } from "child_process";
 import stripAnsi from "strip-ansi";
 import { Agent, AgentStatus, Chunk, SendOptions } from "./AgentAdapter";
 
 /**
- * Claude Code Adapter
+ * Claude Code Adapter (non-PTY version)
  *
- * Uses PTY (pseudo-terminal) to interact with Claude Code CLI
- * Claude Code is a TUI app, so we need to filter ANSI codes and TUI noise
+ * Uses `claude -p` (print mode) for non-interactive execution.
+ * Falls back gracefully when PTY is unavailable (Node 25 compat).
  */
 export class ClaudeCodeAdapter implements Agent {
   readonly id = "claude-code";
   readonly name = "Claude Code";
   readonly type = "cli" as const;
 
-  private pty?: IPty;
+  private currentProcess?: ReturnType<typeof spawn>;
   private _status: AgentStatus = "offline";
-  private outputBuffer = "";
-  private promptDetected = false;
-
-  private claudePath?: string;
 
   async start(): Promise<void> {
-    // Verify claude is available and resolve absolute path
     try {
-      this.claudePath = await new Promise<string>((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         const check = spawn("which", ["claude"]);
-        let path = "";
-        check.stdout.on("data", (d) => { path += d.toString(); });
         check.on("close", (code: number | null) => {
-          const clean = path.trim();
-          code === 0 && clean ? resolve(clean) : reject(new Error("claude not found"));
+          code === 0 ? resolve() : reject(new Error("claude not found"));
         });
       });
       this._status = "ready";
@@ -43,66 +34,84 @@ export class ClaudeCodeAdapter implements Agent {
   }
 
   async stop(): Promise<void> {
-    if (this.pty) {
-      this.pty.write("\x04"); // Ctrl+D
-      this.pty.kill();
-      this.pty = undefined;
-    }
+    this.abort();
     this._status = "offline";
   }
 
   async *send(query: string, _options?: SendOptions): AsyncIterable<Chunk> {
-    // Start PTY on-demand if not already running
-    if (!this.pty || this._status === "offline") {
-      const claude = this.claudePath || "claude";
-      this.pty = spawnPty(claude, ["-p", "--dangerously-skip-permissions"], {
-        cols: 120,
-        rows: 40,
-        cwd: process.cwd(),
-        env: process.env as { [key: string]: string },
-      });
-
-      this.pty.onData((data) => {
-        this.outputBuffer += data;
-      });
-
-      await this.waitForPrompt(30000);
-    }
-
-    if (!this.pty) {
-      throw new Error("PTY not started. Call start() first.");
+    if (this._status === "offline") {
+      throw new Error("Adapter not started. Call start() first.");
     }
 
     this._status = "busy";
-    this.outputBuffer = "";
-    this.promptDetected = false;
 
-    // Send query
-    this.pty.write(query + "\r");
+    const args = ["-p", "--dangerously-skip-permissions", query];
+    this.currentProcess = spawn("claude", args, {
+      cwd: process.cwd(),
+      env: process.env,
+    });
 
-    // Collect output until next prompt
-    const result = await this.collectOutput();
+    const startTime = Date.now();
 
-    // Clean and yield
-    const cleanOutput = this.cleanOutput(result);
+    try {
+      let stdout = "";
+      for await (const data of this.currentProcess.stdout!) {
+        stdout += data.toString();
+      }
 
-    if (cleanOutput) {
+      const stderrChunks: Buffer[] = [];
+      for await (const data of this.currentProcess.stderr!) {
+        stderrChunks.push(data);
+      }
+      const stderr = Buffer.concat(stderrChunks).toString();
+
+      if (stderr) {
+        yield {
+          type: "error",
+          content: this.cleanOutput(stderr),
+          timestamp: Date.now(),
+        };
+      }
+
+      if (stdout) {
+        yield {
+          type: "text",
+          content: this.cleanOutput(stdout),
+          timestamp: Date.now(),
+        };
+      }
+
+      const exitCode = await new Promise<number>((resolve) => {
+        this.currentProcess!.on("close", resolve);
+      });
+
+      if (exitCode !== 0 && !stdout) {
+        yield {
+          type: "error",
+          content: `Process exited with code ${exitCode}`,
+          timestamp: Date.now(),
+        };
+      }
+
+    } catch (err) {
       yield {
-        type: "text",
-        content: cleanOutput,
+        type: "error",
+        content: String(err),
         timestamp: Date.now(),
       };
+    } finally {
+      this._status = "ready";
+      this.currentProcess = undefined;
     }
-
-    this._status = "ready";
   }
 
   abort(): void {
-    if (this.pty) {
-      this.pty.write("\x03"); // Ctrl+C
+    if (this.currentProcess) {
+      this.currentProcess.kill("SIGTERM");
       setTimeout(() => {
-        this.pty?.kill();
-        this._status = "ready";
+        if (this.currentProcess && !this.currentProcess.killed) {
+          this.currentProcess.kill("SIGKILL");
+        }
       }, 5000);
     }
   }
@@ -111,85 +120,16 @@ export class ClaudeCodeAdapter implements Agent {
     return this._status;
   }
 
-  private async waitForPrompt(timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const clean = stripAnsi(this.outputBuffer);
-      if (this.isPrompt(clean)) {
-        this.outputBuffer = ""; // Clear buffer after prompt
-        return;
-      }
-      await sleep(100);
-    }
-    throw new Error("Timeout waiting for Claude Code prompt");
-  }
-
-  private async collectOutput(): Promise<string> {
-    const start = Date.now();
-    const timeout = 120000; // 2 minutes
-
-    while (Date.now() - start < timeout) {
-      const clean = stripAnsi(this.outputBuffer);
-
-      if (this.isPrompt(clean)) {
-        // Extract content before prompt
-        const promptIndex = this.findPromptIndex(clean);
-        if (promptIndex > 0) {
-          return this.outputBuffer.substring(0, promptIndex);
-        }
-      }
-
-      await sleep(100);
-    }
-
-    // Timeout - return what we have
-    return this.outputBuffer;
-  }
-
-  private isPrompt(text: string): boolean {
-    // Claude Code prompt patterns
-    return (
-      text.includes("›") || // Common Claude Code prompt
-      text.includes("claude") ||
-      text.includes("╭") || // TUI border
-      /\$\s*$/.test(text) || // Shell prompt
-      />\s*$/.test(text)
-    );
-  }
-
-  private findPromptIndex(text: string): number {
-    const markers = ["›", "╭", "$ ", "> "];
-    for (const marker of markers) {
-      const idx = text.lastIndexOf(marker);
-      if (idx !== -1) {
-        return idx;
-      }
-    }
-    return -1;
-  }
-
   private cleanOutput(raw: string): string {
     let cleaned = stripAnsi(raw);
-
     // Remove TUI border characters
-    cleaned = cleaned.replace(/[┌─┐│└┘├┤┬┴┼]/g, "");
-
+    cleaned = cleaned.replace(/[┌─┐│└┘├┤┬┴┼╔═╗║╚╝╠╣╦╩╬]/g, "");
     // Remove progress bars
     cleaned = cleaned.replace(/\[=?[\s=]+\]/g, "");
-
-    // Remove box-drawing characters
-    cleaned = cleaned.replace(/[╔═╗║╚╝╠╣╦╩╬]/g, "");
-
     // Remove spinner characters
     cleaned = cleaned.replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "");
-
     // Clean up multiple newlines
     cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-
     return cleaned.trim();
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
