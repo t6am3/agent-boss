@@ -1,7 +1,7 @@
 import { AssetLedger } from './AssetLedger';
 import { EvaluationEngine } from './EvaluationEngine';
 import { MissionStore } from './MissionStore';
-import { MockMissionRunner } from './MissionRunner';
+import { MockMissionRunner, OpenClawRunner } from './MissionRunner';
 import { Reporter } from './Reporter';
 import { Supervisor } from './Supervisor';
 import { Database } from '../storage/Database';
@@ -12,6 +12,7 @@ export interface AppContext {
   missions: MissionStore;
   supervisor: Supervisor;
   runner: MockMissionRunner;
+  openClawRunner: OpenClawRunner;
   reporter: Reporter;
   evaluations: EvaluationEngine;
 }
@@ -32,6 +33,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppCont
     missions,
     supervisor,
     runner: new MockMissionRunner(missions, supervisor),
+    openClawRunner: new OpenClawRunner(missions, supervisor),
     reporter: new Reporter(),
     evaluations: new EvaluationEngine(db, missions),
   };

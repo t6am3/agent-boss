@@ -66,6 +66,7 @@ Core
 
 Adapters
 ├── MockMissionRunner      # P0.5 本地执行闭环验证
+├── OpenClawRunner         # 通过 OpenClaw CLI agent turn 执行
 ├── CodexAdapter
 ├── ClaudeCodeAdapter
 ├── OpenClawAdapter
@@ -565,9 +566,11 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 
 ### Phase 6：全新接入真实 Agent
 
-- 状态：MockRunner 已完成；真实 adapter 待接入。
+- 状态：MockRunner 已完成；OpenClaw CLI runner 已完成基础版；Codex / Claude 待接入。
 - 支持 `mission run <id> --runner mock --asset codex`。
+- 支持 `mission run <id> --runner openclaw --asset openclaw --timeout 120`。
 - `MockMissionRunner` 自动写入 assigned、progress、confirmation_requested、decision、completed events。
+- `OpenClawRunner` 调用 `openclaw agent --json --message ...`，成功时写入 progress/completed，失败时写入 blocked 或 resource_escalation。
 - 权限/付费/破坏性问题通过 Supervisor 暂停并升级 Owner。
 - 为 Codex / Claude / OpenClaw 按 v0.4 `MissionRunner` 接口重写 adapter。
 - adapter 自动写入 MissionEvent：assigned、progress、blocked、completed、failed。

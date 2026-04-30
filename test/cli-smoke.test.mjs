@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -21,6 +21,13 @@ function runCliWithInput(cwd, args, input) {
     encoding: 'utf8',
     input,
   });
+}
+
+function createFakeOpenClaw(cwd, script) {
+  const file = path.join(cwd, 'fake-openclaw');
+  writeFileSync(file, script);
+  chmodSync(file, 0o755);
+  return file;
 }
 
 test('CLI smoke: assets, mission, supervisor decision, report, judge', () => {
@@ -141,6 +148,35 @@ test('CLI demo runs a full MVP mission loop', () => {
   assert.match(output, /Demo judged: A/);
   assert.match(output, /MVP demo completed/);
   assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /judged/);
+});
+
+test('CLI mission run can use an OpenClaw command adapter', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-openclaw-'));
+  const fakeOpenClaw = createFakeOpenClaw(cwd, [
+    '#!/bin/sh',
+    'echo \'{"reply":"fake OpenClaw completed the mission"}\'',
+    '',
+  ].join('\n'));
+
+  runCli(cwd, ['assets', 'add', 'openclaw', '--type', 'agent', '--name', 'OpenClaw']);
+  runCli(cwd, ['mission', 'create', 'delegate work to openclaw', '--assets', 'openclaw']);
+
+  const output = runCli(cwd, [
+    'mission',
+    'run',
+    'm-001',
+    '--runner',
+    'openclaw',
+    '--asset',
+    'openclaw',
+    '--openclaw-bin',
+    fakeOpenClaw,
+    '--timeout',
+    '1',
+  ]);
+  assert.match(output, /Run completed: completed/);
+  assert.match(output, /OpenClaw completed/);
+  assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /fake OpenClaw completed the mission/);
 });
 
 test('Interactive shell can run demo and list missions', () => {

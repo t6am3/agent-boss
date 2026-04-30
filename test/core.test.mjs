@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createRequire } from 'node:module';
-import { mkdtempSync } from 'node:fs';
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -116,6 +116,33 @@ test('MockMissionRunner completes a mission and records supervisor decisions', a
     assert.equal(finalMission.progress, 100);
     assert.ok(events.some((event) => event.type === 'confirmation_requested'));
     assert.ok(events.some((event) => event.type === 'decision'));
+  } finally {
+    await app.db.close();
+  }
+});
+
+test('OpenClawRunner records a blocker when the command fails', async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-openclaw-core-'));
+  const fakeOpenClaw = path.join(cwd, 'fake-openclaw');
+  writeFileSync(fakeOpenClaw, ['#!/bin/sh', 'echo "gateway closed" >&2', 'exit 2', ''].join('\n'));
+  chmodSync(fakeOpenClaw, 0o755);
+
+  const app = await createApp({ cwd });
+  try {
+    const mission = await app.missions.createMission('Run OpenClaw through the gateway', ['openclaw']);
+    const result = await app.openClawRunner.run(mission, {
+      assetId: 'openclaw',
+      command: fakeOpenClaw,
+      timeoutSeconds: 1,
+    });
+    const finalMission = await app.missions.getMission(mission.id);
+    const events = await app.missions.listEvents(mission.id);
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.escalatedToOwner, false);
+    assert.equal(finalMission.status, 'blocked');
+    assert.ok(events.some((event) => event.type === 'blocked'));
+    assert.match(finalMission.summary, /gateway closed/);
   } finally {
     await app.db.close();
   }

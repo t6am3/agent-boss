@@ -7,6 +7,7 @@ import {
   AssetStatus,
   AssetType,
   CostMode,
+  Mission,
   MissionStage,
   MissionEventType,
   MissionStatus,
@@ -15,7 +16,7 @@ import {
   UpdateAssetInput,
 } from './domain/types';
 import { AppContext, createApp } from './core/App';
-import { MockRunScenario } from './core/MissionRunner';
+import { MissionRunOptions, MissionRunnerKind, MockRunScenario } from './core/MissionRunner';
 
 interface ParsedArgs {
   positionals: string[];
@@ -222,21 +223,13 @@ async function handleMission(app: AppContext, args: string[]): Promise<void> {
 
   if (action === 'run') {
     const id = parsed.positionals[0];
-    requireArg(id, 'Usage: agent-boss mission run <missionId> [--runner mock] [--asset codex] [--scenario confirmation]');
-    const runner = readFlag(parsed, 'runner') ?? 'mock';
-    if (runner !== 'mock') {
-      throw new Error(`Unsupported runner: ${runner}. Allowed: mock`);
-    }
+    requireArg(id, 'Usage: agent-boss mission run <missionId> [--runner mock|openclaw] [--asset openclaw]');
     const assetId = readFlag(parsed, 'asset');
     if (assetId) {
       await requireAsset(app, assetId);
     }
     const mission = await requireMission(app, id);
-    const result = await app.runner.run(mission, {
-      assetId,
-      scenario: parseMockRunScenario(readFlag(parsed, 'scenario') ?? 'confirmation'),
-      question: readFlag(parsed, 'question'),
-    });
+    const result = await runMission(app, mission, parsed, assetId);
     const current = await requireMission(app, id);
     console.log(`Run completed: ${result.status}`);
     console.log(`Escalated to owner: ${result.escalatedToOwner ? 'yes' : 'no'}`);
@@ -460,17 +453,13 @@ async function handleInteractiveLine(app: AppContext, line: string): Promise<voi
   if (command === 'run') {
     const parsed = parseArgs(rest);
     const id = parsed.positionals[0];
-    requireArg(id, 'Usage: run <missionId> [--asset codex] [--scenario confirmation]');
+    requireArg(id, 'Usage: run <missionId> [--runner mock|openclaw] [--asset openclaw]');
     const assetId = readFlag(parsed, 'asset');
     if (assetId) {
       await requireAsset(app, assetId);
     }
     const mission = await requireMission(app, id);
-    const result = await app.runner.run(mission, {
-      assetId,
-      scenario: parseMockRunScenario(readFlag(parsed, 'scenario') ?? 'confirmation'),
-      question: readFlag(parsed, 'question'),
-    });
+    const result = await runMission(app, mission, parsed, assetId);
     const current = await requireMission(app, id);
     console.log(`Run completed: ${result.status}`);
     console.log(app.reporter.renderStatusBoard(current, await app.missions.listRecentEvents(id, 20)));
@@ -547,6 +536,22 @@ async function handleInteractiveAsset(app: AppContext, args: string[]): Promise<
   }
 
   throw new Error('Usage: asset <add|update>');
+}
+
+async function runMission(
+  app: AppContext,
+  mission: Mission,
+  parsed: ParsedArgs,
+  assetId?: string,
+) {
+  const runner = parseMissionRunnerKind(readFlag(parsed, 'runner') ?? 'mock');
+  const options = readMissionRunOptions(parsed, assetId);
+
+  if (runner === 'openclaw') {
+    return app.openClawRunner.run(mission, options);
+  }
+
+  return app.runner.run(mission, options);
 }
 
 async function ensureDemoAssets(app: AppContext): Promise<void> {
@@ -800,6 +805,20 @@ function readMissionPatch(parsed: ParsedArgs): MissionUpdatePatch {
   return patch;
 }
 
+function readMissionRunOptions(parsed: ParsedArgs, assetId?: string): MissionRunOptions {
+  const timeout = readFlag(parsed, 'timeout');
+  return {
+    assetId,
+    scenario: parseMockRunScenario(readFlag(parsed, 'scenario') ?? 'confirmation'),
+    question: readFlag(parsed, 'question'),
+    command: readFlag(parsed, 'openclaw-bin'),
+    agentId: readFlag(parsed, 'openclaw-agent'),
+    timeoutSeconds: timeout ? parsePositiveInteger(timeout, 'timeout') : undefined,
+    thinking: readFlag(parsed, 'thinking'),
+    message: readFlag(parsed, 'message'),
+  };
+}
+
 function splitCsv(value: string | undefined): string[] | undefined {
   if (!value) {
     return undefined;
@@ -848,6 +867,10 @@ function parseMissionStage(value: string): MissionStage {
 
 function parseMissionStatus(value: string): MissionStatus {
   return parseUnion(value, ['active', 'blocked', 'waiting_resource', 'waiting_owner', 'completed', 'failed', 'cancelled'], 'mission status');
+}
+
+function parseMissionRunnerKind(value: string): MissionRunnerKind {
+  return parseUnion(value, ['mock', 'openclaw'], 'mission runner');
 }
 
 function parseMockRunScenario(value: string): MockRunScenario {
@@ -926,7 +949,8 @@ Usage:
   agent-boss mission watch <missionId> [--follow] [--interval 3] [--cycles 10]
   agent-boss mission log <missionId> [--limit 50]
   agent-boss mission update <missionId> --stage executing --progress 40 --next "review"
-  agent-boss mission run <missionId> [--runner mock] [--asset codex] [--scenario confirmation]
+  agent-boss mission run <missionId> [--runner mock|openclaw] [--asset openclaw]
+  agent-boss mission run <missionId> --runner openclaw --asset openclaw --timeout 120
   agent-boss mission report <missionId>
   agent-boss mission event <missionId> "<content>" --type progress --actor codex
   agent-boss mission decide <missionId> "<question>"
@@ -945,7 +969,7 @@ Interactive commands:
   asset update <id> --status limited --notes "quota low"
   missions
   create "<goal>" [--assets codex,claude-code]
-  run <missionId> [--asset codex] [--scenario happy|confirmation|permission|blocked]
+  run <missionId> [--runner mock|openclaw] [--asset openclaw] [--scenario happy|confirmation|permission|blocked]
   status <missionId>
   log <missionId>
   report <missionId>
