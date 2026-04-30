@@ -2,6 +2,7 @@
 
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { BossAgent } from './core/BossAgent';
 import {
   AddAssetInput,
   AssetStatus,
@@ -74,6 +75,7 @@ async function main(): Promise<void> {
         break;
       case 'interactive':
       case 'tui':
+      case 'boss':
         await handleInteractive(app);
         break;
       default:
@@ -373,20 +375,21 @@ async function handleDemo(app: AppContext, args: string[]): Promise<void> {
 
 async function handleInteractive(app: AppContext): Promise<void> {
   const rl = createInterface({ input, output, terminal: input.isTTY });
+  const boss = new BossAgent(app);
 
-  console.log('Agent Boss Interactive MVP');
-  console.log('Type help for commands, demo for a full run, exit to quit.');
+  console.log('Agent Boss Direct Line');
+  console.log('直接跟 Boss 说目标或问进展。输入 help 看示例，exit 退出。');
 
   try {
     if (input.isTTY) {
-      output.write('agent-boss> ');
+      output.write('owner> ');
     }
 
     for await (const line of rl) {
       const trimmed = line.trim();
       if (!trimmed) {
         if (input.isTTY) {
-          output.write('agent-boss> ');
+          output.write('owner> ');
         }
         continue;
       }
@@ -395,12 +398,12 @@ async function handleInteractive(app: AppContext): Promise<void> {
         return;
       }
       try {
-        await handleInteractiveLine(app, trimmed);
+        await handleInteractiveLine(app, boss, trimmed);
       } catch (err) {
         console.error(err instanceof Error ? err.message : String(err));
       }
       if (input.isTTY) {
-        output.write('agent-boss> ');
+        output.write('owner> ');
       }
     }
   } finally {
@@ -408,21 +411,21 @@ async function handleInteractive(app: AppContext): Promise<void> {
   }
 }
 
-async function handleInteractiveLine(app: AppContext, line: string): Promise<void> {
+async function handleInteractiveLine(app: AppContext, boss: BossAgent, line: string): Promise<void> {
   const [command, ...rest] = splitCommandLine(line);
 
   if (!command || command === 'help') {
-    showInteractiveHelp();
+    console.log(await boss.respond('help'));
     return;
   }
 
   if (command === 'demo') {
-    await handleDemo(app, rest);
+    console.log(await boss.respond('演示一下'));
     return;
   }
 
   if (command === 'assets') {
-    console.log(app.reporter.renderAssets(await app.assets.listAssets()));
+    console.log(await boss.respond('资产'));
     return;
   }
 
@@ -432,7 +435,7 @@ async function handleInteractiveLine(app: AppContext, line: string): Promise<voi
   }
 
   if (command === 'missions') {
-    console.log(app.reporter.renderMissionList(await app.missions.listMissions()));
+    console.log(await boss.respond('任务列表'));
     return;
   }
 
@@ -468,31 +471,19 @@ async function handleInteractiveLine(app: AppContext, line: string): Promise<voi
 
   if (command === 'status') {
     const id = rest[0];
-    requireArg(id, 'Usage: status <missionId>');
-    const mission = await requireMission(app, id);
-    console.log(app.reporter.renderStatusBoard(mission, await app.missions.listRecentEvents(id, 20)));
+    console.log(await boss.respond(id ? `状态 ${id}` : '状态'));
     return;
   }
 
   if (command === 'log') {
     const id = rest[0];
-    requireArg(id, 'Usage: log <missionId>');
-    await requireMission(app, id);
-    console.log(app.reporter.renderMissionLog(await app.missions.listEvents(id)));
+    console.log(await boss.respond(id ? `审计 ${id}` : '审计'));
     return;
   }
 
   if (command === 'report') {
     const id = rest[0];
-    requireArg(id, 'Usage: report <missionId>');
-    const mission = await requireMission(app, id);
-    console.log(app.reporter.renderReport(mission, await app.missions.listEvents(id)));
-    await app.missions.addEvent({
-      missionId: id,
-      type: 'report',
-      actor: 'boss',
-      content: 'Interactive report generated.',
-    });
+    console.log(await boss.respond(id ? `汇报 ${id}` : '汇报'));
     return;
   }
 
@@ -501,7 +492,7 @@ async function handleInteractiveLine(app: AppContext, line: string): Promise<voi
     return;
   }
 
-  throw new Error(`Unknown interactive command: ${command}`);
+  console.log(await boss.respond(line));
 }
 
 async function handleInteractiveAsset(app: AppContext, args: string[]): Promise<void> {
@@ -949,6 +940,7 @@ Usage:
   agent-boss [--db .agent-boss/dev.sqlite] <command>
 
   agent-boss demo
+  agent-boss boss
   agent-boss interactive
 
   agent-boss assets add <id> --type agent --name "Codex" --plan coding-plan --scenes code,refactor
@@ -980,6 +972,14 @@ Usage:
 function showInteractiveHelp(): void {
   console.log(`
 Interactive commands:
+  直接说自然语言：帮我重构登录模块
+  用 runner 直接派发：用 hermes 帮我检查 README
+  问进度：现在进展如何
+  要汇报：给我汇报
+  看审计：审计 m-001
+  演示：演示一下
+  资产：资产
+  仍兼容这些显式命令：
   demo
   assets
   asset add <id> --type agent --name "Codex" --scenes code,review

@@ -276,8 +276,47 @@ test('Interactive shell can run demo and list missions', () => {
   const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-interactive-'));
 
   const output = runCliWithInput(cwd, ['interactive'], 'demo\nmissions\nexit\n');
-  assert.match(output, /Agent Boss Interactive MVP/);
-  assert.match(output, /MVP demo completed/);
+  assert.match(output, /Agent Boss Direct Line/);
+  assert.match(output, /Boss 演示完成/);
   assert.match(output, /m-001/);
   assert.match(output, /Bye/);
+});
+
+test('Boss direct line accepts natural language status, report, and audit', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-boss-line-'));
+
+  const output = runCliWithInput(
+    cwd,
+    ['boss'],
+    [
+      '帮我写一个自然语言交互测试任务',
+      '现在进展如何',
+      '给我汇报',
+      '审计',
+      'exit',
+      '',
+    ].join('\n'),
+  );
+
+  assert.match(output, /Agent Boss Direct Line/);
+  assert.match(output, /我已接单：m-001/);
+  assert.match(output, /Boss Dashboard/);
+  assert.match(output, /Boss 汇报 m-001/);
+  assert.match(output, /审计 m-001/);
+  assert.match(output, /自然语言交互测试任务/);
+});
+
+test('Boss direct line can create and run from one natural language message', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-boss-run-'));
+
+  const output = runCliWithInput(
+    cwd,
+    ['boss'],
+    '用 mock 帮我跑一个自然语言自动派发任务\nexit\n',
+  );
+
+  assert.match(output, /我已接单并开始执行：m-001/);
+  assert.match(output, /执行结果：completed/);
+  assert.match(output, /Runner：mock/);
+  assert.match(output, /Mission Status Board - m-001/);
 });
