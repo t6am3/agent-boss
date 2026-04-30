@@ -333,3 +333,34 @@ test('Boss direct line can create and run from one natural language message', ()
   assert.match(output, /是否需要你：不需要/);
   assert.match(output, /目标：跑一个自然语言自动派发任务/);
 });
+
+test('Boss brain model can be configured and used for intent handling', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-brain-config-'));
+  const fakeBrain = createFakeOpenClaw(cwd, [
+    '#!/bin/sh',
+    'echo \'{"intent":"create","goal":"brain configured mission","autoRun":false}\'',
+    '',
+  ].join('\n'));
+
+  assert.match(
+    runCli(cwd, ['boss', 'config', 'show']),
+    /Provider: rule/,
+  );
+  assert.match(
+    runCli(cwd, ['boss', 'config', 'model', '--provider', 'hermes', '--model', 'fake-brain', '--command', fakeBrain]),
+    /provider=hermes, model=fake-brain/,
+  );
+  assert.match(
+    runCli(cwd, ['boss', 'config', 'show']),
+    /Provider: hermes/,
+  );
+
+  const output = runCliWithInput(cwd, ['boss'], '这句话靠模型判断\nexit\n');
+  assert.match(output, /我已接单：m-001/);
+  assert.match(output, /brain configured mission/);
+
+  assert.match(
+    runCli(cwd, ['boss', 'config', 'clear']),
+    /rule fallback/,
+  );
+});

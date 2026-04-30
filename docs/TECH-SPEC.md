@@ -15,11 +15,12 @@
 先实现本地 CLI 版 AI 监工台，让用户可以：
 
 1. 进入 `agent-boss boss`，用自然语言只给目标、只问进度。
-2. 让 Boss 创建 Mission，而不是只发一次 query。
-3. 让 Boss 在自己的 workspace 里用文件系统、bash 和必要的浏览器观察推进任务。
-4. 默认折叠下层 agent 细节，只在 Owner 要“审计”时展开事件流。
-5. 记录下层 agent 的进展、阻塞、确认请求和 Boss 代决策。
-6. 对 Mission 做 judge，沉淀资产表现和用户偏好。
+2. 通过 `agent-boss boss config model` 为 Boss 自己配置 brain model；未配置时使用 rule fallback。
+3. 让 Boss 创建 Mission，而不是只发一次 query。
+4. 让 Boss 在自己的 workspace 里用文件系统、bash 和必要的浏览器观察推进任务。
+5. 默认折叠下层 agent 细节，只在 Owner 要“审计”时展开事件流。
+6. 记录下层 agent 的进展、阻塞、确认请求和 Boss 代决策。
+7. 对 Mission 做 judge，沉淀资产表现和用户偏好。
 
 ### 1.2 非目标
 
@@ -60,6 +61,8 @@ CLI
 
 Core
 ├── BossAgent              # Owner 单线对话层：目标、进度、汇报、审计
+├── BossBrain              # 可选模型驱动意图识别，未配置时 rule fallback
+├── SettingsStore          # Boss brain provider/model/command 等配置
 ├── AssetLedger            # AI 资产台账
 ├── MissionStore           # Mission + event log + persistence
 ├── Supervisor             # 代决策与升级规则
@@ -84,6 +87,7 @@ Storage
 - **Mission 是主对象**：所有资产使用、事件、决策、评价都围绕 Mission 记录。
 - **Event log 是血管**：状态、汇报、复盘都从 MissionEvent 汇总生成。
 - **Boss Direct Line 是主入口**：Owner 默认不操作工具，只给目标、看进度。
+- **Boss brain 可配置**：`rule` 模式无模型也能跑；配置 codex/claude/hermes 后，先用模型理解 Owner 意图。
 - **基础能力优先**：Boss 的通用手脚是 workspace、filesystem、bash 和 browser observation；runner/asset 是内部调度细节。
 - **Supervisor 先规则化**：先用明确规则决定是否打扰用户，不引入不稳定智能判断。
 - **Reporter 面向老板**：默认展示结果、风险和下一步，折叠下层 agent 噪音。
@@ -272,6 +276,12 @@ CREATE TABLE mission_events (
   content TEXT NOT NULL,
   metadata TEXT,
   created_at INTEGER NOT NULL
+);
+
+CREATE TABLE settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE supervisor_decisions (
@@ -591,6 +601,8 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 - 状态：已完成基础版。
 - `agent-boss demo` 一键创建 demo 资产、创建 Mission、运行 MockRunner、输出状态板、生成 report、写入 judge。
 - `agent-boss boss` / `agent-boss interactive` 提供 Boss Direct Line，支持自然语言目标、进度、汇报、审计和演示。
+- `agent-boss boss config show|model|clear` 支持 Boss brain model 配置。
+- Boss brain 支持 `rule` fallback，以及通过本机 `codex`、`claude`、`hermes` 做意图识别。
 - 传统 interactive 命令继续兼容 demo、assets、missions、create、run、status、log、report、judge，但不是主产品体验。
 
 ---

@@ -3,12 +3,14 @@ import { EvaluationEngine } from './EvaluationEngine';
 import { MissionStore } from './MissionStore';
 import { ClaudeRunner, CodexRunner, HermesRunner, MockMissionRunner, OpenClawRunner } from './MissionRunner';
 import { Reporter } from './Reporter';
+import { SettingsStore } from './SettingsStore';
 import { Supervisor } from './Supervisor';
 import { Database } from '../storage/Database';
 
 export interface AppContext {
   db: Database;
   assets: AssetLedger;
+  settings: SettingsStore;
   missions: MissionStore;
   supervisor: Supervisor;
   runner: MockMissionRunner;
@@ -28,11 +30,13 @@ export interface CreateAppOptions {
 export async function createApp(options: CreateAppOptions = {}): Promise<AppContext> {
   const db = await Database.openDefault(options.cwd, options.dbPath);
   const assets = new AssetLedger(db);
+  const settings = new SettingsStore(db);
   const missions = new MissionStore(db);
   const supervisor = new Supervisor(db);
   return {
     db,
     assets,
+    settings,
     missions,
     supervisor,
     runner: new MockMissionRunner(missions, supervisor),

@@ -18,6 +18,7 @@ import {
 } from './domain/types';
 import { AppContext, createApp } from './core/App';
 import { MissionRunOptions, MissionRunnerKind, MockRunScenario } from './core/MissionRunner';
+import { parseBossBrainProvider } from './core/SettingsStore';
 
 interface ParsedArgs {
   positionals: string[];
@@ -73,9 +74,11 @@ async function main(): Promise<void> {
       case 'demo':
         await handleDemo(app, rest);
         break;
+      case 'boss':
+        await handleBoss(app, rest);
+        break;
       case 'interactive':
       case 'tui':
-      case 'boss':
         await handleInteractive(app);
         break;
       default:
@@ -84,6 +87,58 @@ async function main(): Promise<void> {
   } finally {
     await app.db.close();
   }
+}
+
+async function handleBoss(app: AppContext, args: string[]): Promise<void> {
+  const [action, ...rest] = args;
+  if (!action) {
+    await handleInteractive(app);
+    return;
+  }
+
+  if (action === 'config') {
+    await handleBossConfig(app, rest);
+    return;
+  }
+
+  throw new Error('Usage: agent-boss boss [config|interactive]');
+}
+
+async function handleBossConfig(app: AppContext, args: string[]): Promise<void> {
+  const [action, ...rest] = args;
+  const parsed = parseArgs(rest);
+
+  if (!action || action === 'show' || action === 'status') {
+    const config = await app.settings.getBossBrainConfig();
+    console.log([
+      'Boss brain config',
+      `Provider: ${config.provider}`,
+      `Model: ${config.model ?? '-'}`,
+      `Command: ${config.command ?? '-'}`,
+      '',
+      config.provider === 'rule'
+        ? 'Mode: rule fallback. Boss can run without a model, but only with lightweight deterministic intent handling.'
+        : 'Mode: model-backed. Boss uses this brain model for natural language intent handling, then falls back to rules if the model call fails.',
+    ].join('\n'));
+    return;
+  }
+
+  if (action === 'model') {
+    const provider = parseBossBrainProvider(readFlag(parsed, 'provider') ?? parsed.positionals[0] ?? '');
+    const model = readFlag(parsed, 'model') ?? parsed.positionals[1];
+    const command = readFlag(parsed, 'command');
+    await app.settings.setBossBrainConfig({ provider, model, command });
+    console.log(`Boss brain configured: provider=${provider}, model=${model ?? '-'}`);
+    return;
+  }
+
+  if (action === 'clear' || action === 'rule') {
+    await app.settings.clearBossBrainConfig();
+    console.log('Boss brain reset to rule fallback mode.');
+    return;
+  }
+
+  throw new Error('Usage: agent-boss boss config [show|model --provider codex --model gpt-5.4|clear]');
 }
 
 async function handleAssets(app: AppContext, args: string[]): Promise<void> {
@@ -941,6 +996,9 @@ Usage:
 
   agent-boss demo
   agent-boss boss
+  agent-boss boss config show
+  agent-boss boss config model --provider codex --model gpt-5.4
+  agent-boss boss config clear
   agent-boss interactive
 
   agent-boss assets add <id> --type agent --name "Codex" --plan coding-plan --scenes code,refactor

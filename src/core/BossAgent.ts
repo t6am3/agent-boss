@@ -1,5 +1,6 @@
 import { AddAssetInput, Asset, Mission } from '../domain/types';
 import type { AppContext } from './App';
+import { BossBrain, BossIntent, BossIntentRunner } from './BossBrain';
 import { MissionRunResult, MissionRunnerKind } from './MissionRunner';
 
 interface RunnerSelection {
@@ -8,12 +9,19 @@ interface RunnerSelection {
 }
 
 export class BossAgent {
+  private readonly brain = new BossBrain();
+
   constructor(private readonly app: AppContext) {}
 
   async respond(input: string): Promise<string> {
     const line = input.trim();
     if (!line) {
       return '我在。你可以直接说目标，比如：帮我检查 README，或者问：现在进展如何？';
+    }
+
+    const brainIntent = await this.interpretWithBrain(line);
+    if (brainIntent) {
+      return this.respondToIntent(brainIntent, line);
     }
 
     if (isHelpRequest(line)) {
@@ -53,6 +61,46 @@ export class BossAgent {
     }
 
     return this.createMissionFromNaturalGoal(line);
+  }
+
+  private async interpretWithBrain(line: string): Promise<BossIntent | undefined> {
+    const config = await this.app.settings.getBossBrainConfig();
+    if (config.provider === 'rule') {
+      return undefined;
+    }
+    try {
+      return await this.brain.interpret(line, config, await this.app.missions.listMissions());
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async respondToIntent(intent: BossIntent, fallbackLine: string): Promise<string> {
+    if (intent.intent === 'help') {
+      return renderHelp();
+    }
+    if (intent.intent === 'greeting') {
+      return '我在。你只管给目标和问进度，我来管理过程。';
+    }
+    if (intent.intent === 'demo') {
+      return this.runDemo();
+    }
+    if (intent.intent === 'capabilities') {
+      return this.renderInternalCapabilities();
+    }
+    if (intent.intent === 'audit') {
+      return this.renderAudit(intent.missionId ?? extractMissionId(fallbackLine));
+    }
+    if (intent.intent === 'report') {
+      return this.renderReport(intent.missionId ?? extractMissionId(fallbackLine));
+    }
+    if (intent.intent === 'progress') {
+      return this.renderDashboard(intent.missionId ?? extractMissionId(fallbackLine));
+    }
+    if (intent.intent === 'run') {
+      return this.runExistingMission(composeIntentLine(intent, fallbackLine));
+    }
+    return this.createMissionFromNaturalGoal(composeIntentLine(intent, fallbackLine), intent);
   }
 
   private async runDemo(): Promise<string> {
@@ -169,20 +217,20 @@ export class BossAgent {
     return this.renderRunResult(result);
   }
 
-  private async createMissionFromNaturalGoal(line: string): Promise<string> {
-    const selection = detectRunner(line);
+  private async createMissionFromNaturalGoal(line: string, intent?: BossIntent): Promise<string> {
+    const selection = intent?.runner ? runnerForIntent(intent.runner) : detectRunner(line);
     if (selection?.assetId) {
       await this.ensureKnownAsset(selection.assetId);
     }
 
-    const goal = cleanGoal(line);
+    const goal = cleanGoal(intent?.goal ?? line);
     const candidates = selection?.assetId
       ? [await this.app.assets.getAsset(selection.assetId)].filter(isAsset)
       : await this.app.assets.findCandidates(goal);
     const assetIds = candidates.map((asset) => asset.id);
     const mission = await this.app.missions.createMission(goal, assetIds);
 
-    if (shouldAutoRun(line, selection)) {
+    if (intent?.autoRun || shouldAutoRun(line, selection)) {
       const resolved = selection ?? await this.resolveRunner(line, mission);
       const result = await this.runMission(mission, resolved);
       const renderedResult = await this.renderRunResult(result);
@@ -346,8 +394,29 @@ function detectRunner(line: string): RunnerSelection | undefined {
   return undefined;
 }
 
+function runnerForIntent(runner: BossIntentRunner): RunnerSelection {
+  if (runner === 'claude') {
+    return { runner, assetId: 'claude-code' };
+  }
+  if (runner === 'mock') {
+    return { runner, assetId: 'mock-worker' };
+  }
+  return { runner, assetId: runner };
+}
+
 function isAsset(asset: Asset | undefined): asset is Asset {
   return Boolean(asset);
+}
+
+function composeIntentLine(intent: BossIntent, fallbackLine: string): string {
+  const mission = intent.missionId ? ` ${intent.missionId}` : '';
+  if (intent.intent === 'run') {
+    return `${intent.runner ? `用 ${intent.runner} ` : ''}开始执行${mission}`.trim();
+  }
+  if (intent.intent === 'create') {
+    return `${intent.runner ? `用 ${intent.runner} ` : ''}${intent.goal ?? fallbackLine}`.trim();
+  }
+  return fallbackLine;
 }
 
 function runnerForAsset(assetId: string): RunnerSelection {

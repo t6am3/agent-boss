@@ -88,6 +88,8 @@ npm run build
 
 node dist/cli.js demo
 node dist/cli.js boss
+node dist/cli.js boss config show
+node dist/cli.js boss config model --provider codex --model gpt-5.4
 node dist/cli.js interactive
 
 # 进入交互式终端后可以直接说：
@@ -134,10 +136,22 @@ Claude Code runner 默认使用本机 `claude` 的当前默认模型，可以用
 Hermes runner 默认使用本机 `hermes` 的当前默认 provider/model，可以用 `--hermes-provider <provider>`、
 `--hermes-model <model>` 或对应环境变量覆盖。
 
+Boss 自己也可以配置 brain model：
+
+```bash
+node dist/cli.js boss config show
+node dist/cli.js boss config model --provider codex --model gpt-5.4
+node dist/cli.js boss config model --provider claude --model sonnet
+node dist/cli.js boss config model --provider hermes --model default
+node dist/cli.js boss config clear
+```
+
+不配置时是 `rule` fallback：Boss 仍能接目标、建 mission、汇报进度和审计，但自然语言理解是轻量规则。配置后 Boss 会先用 brain model 判断你的意图，再落回本地 mission / workspace 执行循环。
+
 ## 下一步
 
 1. 记录 usage ledger，让每次 run 自动沉淀耗时、资产、结果质量。
-2. 给 Boss 补真实 workspace 执行循环：读写文件、bash、浏览器观察、产物审计。
+2. 给 Boss brain 补真实 workspace 执行循环：读写文件、bash、浏览器观察、产物审计。
 3. 增强 Boss 调度策略：Owner 不选工具时，Boss 自己按场景、成本、历史质量选择 worker/model。
 
 ---

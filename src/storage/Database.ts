@@ -113,6 +113,14 @@ export class Database {
     `);
 
     await this.run(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    await this.run(`
       CREATE TABLE IF NOT EXISTS supervisor_decisions (
         id TEXT PRIMARY KEY,
         mission_id TEXT NOT NULL REFERENCES missions(id),
@@ -146,6 +154,10 @@ export class Database {
     await this.run(
       'INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
       [2, 'durable counters for concurrent mission ids', Date.now()],
+    );
+    await this.run(
+      'INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
+      [3, 'settings for boss brain configuration', Date.now()],
     );
   }
 }
