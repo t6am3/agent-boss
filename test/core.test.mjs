@@ -121,6 +121,37 @@ test('MockMissionRunner completes a mission and records supervisor decisions', a
   }
 });
 
+test('OpenClawRunner extracts text from payload responses', async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-openclaw-payload-'));
+  const fakeOpenClaw = path.join(cwd, 'fake-openclaw');
+  writeFileSync(
+    fakeOpenClaw,
+    [
+      '#!/bin/sh',
+      'echo \'{"runId":"run-1","status":"ok","result":{"payloads":[{"text":"payload smoke ok","mediaUrl":null}]}}\'',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(fakeOpenClaw, 0o755);
+
+  const app = await createApp({ cwd });
+  try {
+    const mission = await app.missions.createMission('Run OpenClaw payload response', ['openclaw']);
+    const result = await app.openClawRunner.run(mission, {
+      assetId: 'openclaw',
+      command: fakeOpenClaw,
+      timeoutSeconds: 1,
+    });
+    const finalMission = await app.missions.getMission(mission.id);
+
+    assert.equal(result.status, 'completed');
+    assert.match(result.summary, /payload smoke ok/);
+    assert.doesNotMatch(finalMission.summary, /runId/);
+  } finally {
+    await app.db.close();
+  }
+});
+
 test('OpenClawRunner records a blocker when the command fails', async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-openclaw-core-'));
   const fakeOpenClaw = path.join(cwd, 'fake-openclaw');

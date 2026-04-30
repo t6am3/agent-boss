@@ -154,6 +154,7 @@ test('CLI mission run can use an OpenClaw command adapter', () => {
   const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-openclaw-'));
   const fakeOpenClaw = createFakeOpenClaw(cwd, [
     '#!/bin/sh',
+    'case " $* " in *" --agent Nobita "*) ;; *) echo "missing default agent" >&2; exit 2 ;; esac',
     'echo \'{"reply":"fake OpenClaw completed the mission"}\'',
     '',
   ].join('\n'));

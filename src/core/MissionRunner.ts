@@ -195,18 +195,20 @@ export class OpenClawRunner implements MissionRunner {
     private readonly missions: MissionStore,
     private readonly supervisor: Supervisor,
     private readonly defaultCommand = process.env.AGENT_BOSS_OPENCLAW_BIN ?? 'openclaw',
+    private readonly defaultAgentId = process.env.AGENT_BOSS_OPENCLAW_AGENT ?? 'Nobita',
   ) {}
 
   async run(mission: Mission, options: MissionRunOptions = {}): Promise<MissionRunResult> {
     const assetId = options.assetId ?? mission.currentAssignee ?? 'openclaw';
     const command = options.command ?? this.defaultCommand;
     const timeoutSeconds = options.timeoutSeconds ?? 120;
+    const agentId = options.agentId ?? this.defaultAgentId;
 
     await this.record(mission.id, 'assigned', 'boss', `Assigned mission to OpenClaw via ${command}.`, {
       runner: 'openclaw',
       assetId,
       command,
-      agentId: options.agentId,
+      agentId,
       timeoutSeconds,
     });
     await this.missions.updateMission(mission.id, {
@@ -225,7 +227,7 @@ export class OpenClawRunner implements MissionRunner {
       timeoutSeconds,
     });
 
-    const args = buildOpenClawArgs(prompt, options);
+    const args = buildOpenClawArgs(prompt, { ...options, agentId });
 
     try {
       const execution = await runCommand(command, args, (timeoutSeconds + 10) * 1000);
@@ -394,12 +396,21 @@ function pickText(value: unknown): string | undefined {
   if (typeof value === 'string') {
     return value;
   }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = pickText(item);
+      if (nested) {
+        return nested;
+      }
+    }
+    return undefined;
+  }
   if (!value || typeof value !== 'object') {
     return undefined;
   }
 
   const record = value as Record<string, unknown>;
-  for (const key of ['reply', 'message', 'output', 'text', 'content', 'result', 'response']) {
+  for (const key of ['reply', 'message', 'output', 'text', 'content', 'payloads', 'result', 'response']) {
     const candidate = record[key];
     if (typeof candidate === 'string') {
       return candidate;

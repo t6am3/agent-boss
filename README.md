@@ -92,6 +92,7 @@ node dist/cli.js mission log m-001
 node dist/cli.js mission run m-001 --runner mock --asset codex --scenario confirmation
 node dist/cli.js assets add openclaw --type agent --name OpenClaw --scenes automation,feishu
 node dist/cli.js mission run m-001 --runner openclaw --asset openclaw --timeout 120
+node dist/cli.js mission run m-001 --runner openclaw --asset openclaw --openclaw-agent Nobita --timeout 120
 node dist/cli.js mission decide m-001 "Should I add tests for this refactor?"
 node dist/cli.js mission report m-001
 node dist/cli.js mission complete m-001 "登录模块重构完成，已补安全边界和测试"
@@ -99,6 +100,8 @@ node dist/cli.js judge m-001 A "安全边界处理好，成本可以接受" --as
 ```
 
 本地数据保存在 `.agent-boss/agent-boss.sqlite`，该目录默认不入仓。
+OpenClaw runner 默认会传 `--agent Nobita`；可以用 `--openclaw-agent <id>` 或
+`AGENT_BOSS_OPENCLAW_AGENT` 切换成本机其他 agent。
 
 ## 下一步
 
