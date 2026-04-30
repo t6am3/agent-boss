@@ -13,6 +13,7 @@ import {
   UpdateAssetInput,
 } from './domain/types';
 import { AppContext, createApp } from './core/App';
+import { MockRunScenario } from './core/MissionRunner';
 
 interface ParsedArgs {
   positionals: string[];
@@ -210,6 +211,30 @@ async function handleMission(app: AppContext, args: string[]): Promise<void> {
     return;
   }
 
+  if (action === 'run') {
+    const id = parsed.positionals[0];
+    requireArg(id, 'Usage: agent-boss mission run <missionId> [--runner mock] [--asset codex] [--scenario confirmation]');
+    const runner = readFlag(parsed, 'runner') ?? 'mock';
+    if (runner !== 'mock') {
+      throw new Error(`Unsupported runner: ${runner}. Allowed: mock`);
+    }
+    const assetId = readFlag(parsed, 'asset');
+    if (assetId) {
+      await requireAsset(app, assetId);
+    }
+    const mission = await requireMission(app, id);
+    const result = await app.runner.run(mission, {
+      assetId,
+      scenario: parseMockRunScenario(readFlag(parsed, 'scenario') ?? 'confirmation'),
+      question: readFlag(parsed, 'question'),
+    });
+    const current = await requireMission(app, id);
+    console.log(`Run completed: ${result.status}`);
+    console.log(`Escalated to owner: ${result.escalatedToOwner ? 'yes' : 'no'}`);
+    console.log(app.reporter.renderStatusBoard(current, await app.missions.listRecentEvents(id, 20)));
+    return;
+  }
+
   if (action === 'report') {
     const id = parsed.positionals[0];
     requireArg(id, 'Usage: agent-boss mission report <missionId>');
@@ -280,7 +305,7 @@ async function handleMission(app: AppContext, args: string[]): Promise<void> {
     return;
   }
 
-  throw new Error('Usage: agent-boss mission <create|status|watch|log|update|report|event|decide|complete>');
+  throw new Error('Usage: agent-boss mission <create|status|watch|log|update|run|report|event|decide|complete>');
 }
 
 async function handleJudge(app: AppContext, args: string[]): Promise<void> {
@@ -511,6 +536,10 @@ function parseMissionStatus(value: string): MissionStatus {
   return parseUnion(value, ['active', 'blocked', 'waiting_resource', 'waiting_owner', 'completed', 'failed', 'cancelled'], 'mission status');
 }
 
+function parseMockRunScenario(value: string): MockRunScenario {
+  return parseUnion(value, ['happy', 'confirmation', 'permission', 'blocked'], 'mock run scenario');
+}
+
 function parseRiskLevel(value: string): RiskLevel {
   return parseUnion(value, ['low', 'medium', 'high'], 'risk level');
 }
@@ -580,6 +609,7 @@ Usage:
   agent-boss mission watch <missionId> [--follow] [--interval 3] [--cycles 10]
   agent-boss mission log <missionId> [--limit 50]
   agent-boss mission update <missionId> --stage executing --progress 40 --next "review"
+  agent-boss mission run <missionId> [--runner mock] [--asset codex] [--scenario confirmation]
   agent-boss mission report <missionId>
   agent-boss mission event <missionId> "<content>" --type progress --actor codex
   agent-boss mission decide <missionId> "<question>"

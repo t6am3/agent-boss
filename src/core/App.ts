@@ -1,6 +1,7 @@
 import { AssetLedger } from './AssetLedger';
 import { EvaluationEngine } from './EvaluationEngine';
 import { MissionStore } from './MissionStore';
+import { MockMissionRunner } from './MissionRunner';
 import { Reporter } from './Reporter';
 import { Supervisor } from './Supervisor';
 import { Database } from '../storage/Database';
@@ -10,6 +11,7 @@ export interface AppContext {
   assets: AssetLedger;
   missions: MissionStore;
   supervisor: Supervisor;
+  runner: MockMissionRunner;
   reporter: Reporter;
   evaluations: EvaluationEngine;
 }
@@ -23,11 +25,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppCont
   const db = await Database.openDefault(options.cwd, options.dbPath);
   const assets = new AssetLedger(db);
   const missions = new MissionStore(db);
+  const supervisor = new Supervisor(db);
   return {
     db,
     assets,
     missions,
-    supervisor: new Supervisor(db),
+    supervisor,
+    runner: new MockMissionRunner(missions, supervisor),
     reporter: new Reporter(),
     evaluations: new EvaluationEngine(db, missions),
   };

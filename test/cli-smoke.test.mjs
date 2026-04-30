@@ -85,6 +85,31 @@ test('CLI smoke: assets, mission, supervisor decision, report, judge', () => {
     runCli(cwd, ['judge', 'm-001', 'A', 'Safe and useful.', '--assets', 'codex,claude-code']),
     /Evaluation recorded:/,
   );
+
+  assert.match(
+    runCli(cwd, ['mission', 'create', 'ship a mock runner', '--assets', 'codex']),
+    /Mission created: m-002/,
+  );
+  assert.match(
+    runCli(cwd, ['mission', 'run', 'm-002', '--asset', 'codex', '--scenario', 'confirmation']),
+    /Run completed: completed/,
+  );
+  const runLog = runCli(cwd, ['mission', 'log', 'm-002']);
+  assert.match(runLog, /confirmation_requested/);
+  assert.match(runLog, /Add tests and continue without asking owner/);
+});
+
+test('CLI mission run escalates permission issues to owner', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-run-'));
+
+  runCli(cwd, ['assets', 'add', 'codex', '--type', 'agent', '--name', 'Codex']);
+  runCli(cwd, ['mission', 'create', 'inspect private repo', '--assets', 'codex']);
+
+  const output = runCli(cwd, ['mission', 'run', 'm-001', '--asset', 'codex', '--scenario', 'permission']);
+  assert.match(output, /Run completed: waiting_owner/);
+  assert.match(output, /Escalated to owner: yes/);
+  assert.match(output, /Owner needed: yes/);
+  assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /resource_escalation/);
 });
 
 test('CLI supports an explicit database path', () => {

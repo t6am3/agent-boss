@@ -213,7 +213,7 @@ export class MissionStore {
 
   async listEvents(missionId: string): Promise<MissionEvent[]> {
     const rows = await this.db.all<MissionEventRow>(
-      'SELECT * FROM mission_events WHERE mission_id = ? ORDER BY created_at ASC',
+      'SELECT * FROM mission_events WHERE mission_id = ? ORDER BY created_at ASC, rowid ASC',
       [missionId],
     );
     return rows.map(toMissionEvent);
@@ -221,7 +221,7 @@ export class MissionStore {
 
   async listRecentEvents(missionId: string, limit: number): Promise<MissionEvent[]> {
     const rows = await this.db.all<MissionEventRow>(
-      'SELECT * FROM mission_events WHERE mission_id = ? ORDER BY created_at DESC LIMIT ?',
+      'SELECT * FROM mission_events WHERE mission_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?',
       [missionId, limit],
     );
     return rows.map(toMissionEvent).reverse();

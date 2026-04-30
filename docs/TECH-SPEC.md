@@ -51,17 +51,19 @@ v0.4 实现采用直接重写策略，当前状态如下：
 ```text
 CLI
 ├── assets add/update/list/show
-├── mission create/list/status/watch/log/update/report/event/decide/complete
+├── mission create/list/status/watch/log/update/run/report/event/decide/complete
 └── judge
 
 Core
 ├── AssetLedger            # AI 资产台账
 ├── MissionStore           # Mission + event log + persistence
 ├── Supervisor             # 代决策与升级规则
+├── MissionRunner          # Mission 执行循环接口
 ├── Reporter               # 老板视角状态板和汇报
 └── EvaluationEngine       # 评分与表现沉淀
 
 Adapters
+├── MockMissionRunner      # P0.5 本地执行闭环验证
 ├── CodexAdapter
 ├── ClaudeCodeAdapter
 ├── OpenClawAdapter
@@ -541,7 +543,7 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 ### Phase 3：Mission Store + CLI
 
 - 状态：已完成基础版。
-- 实现 `mission create/status/watch/log/update/event/complete`。
+- 实现 `mission create/status/watch/log/update/run/event/complete`。
 - Mission create 自动写入初始 events。
 - Status board 使用 Mission 当前字段。
 
@@ -561,7 +563,10 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 
 ### Phase 6：全新接入真实 Agent
 
-- 支持 `mission run <id> --asset codex`。
+- 状态：MockRunner 已完成；真实 adapter 待接入。
+- 支持 `mission run <id> --runner mock --asset codex`。
+- `MockMissionRunner` 自动写入 assigned、progress、confirmation_requested、decision、completed events。
+- 权限/付费/破坏性问题通过 Supervisor 暂停并升级 Owner。
 - 为 Codex / Claude / OpenClaw 按 v0.4 `MissionRunner` 接口重写 adapter。
 - adapter 自动写入 MissionEvent：assigned、progress、blocked、completed、failed。
 
@@ -575,7 +580,7 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 | 真实账单接入复杂 | 拖慢 MVP | 先做手动资产台账 |
 | 旧代码继续影响方向 | 产品主线跑偏 | Phase 0 直接归档旧 `src/`，从 v0.4 重写 |
 | SQLite schema 未来变化 | 迁移成本 | v0.1 已加入 schema migration 标记，后续补真实迁移脚本 |
-| 下层 Agent 状态不可观测 | 无法真监工 | v0.1 先支持手动 event，后续 adapter 自动写 event |
+| 下层 Agent 状态不可观测 | 无法真监工 | v0.1 已用 MockRunner 验证自动 event，后续接真实 adapter |
 
 ---
 
@@ -589,8 +594,8 @@ v0.1 证明 Mission 监工闭环：
 
 v0.2 引入真实执行：
 
-- `mission run`
-- adapter 自动产出 progress / blocked / completed events
+- 本地命令型 runner
+- Codex / Claude / OpenClaw adapter 自动产出 progress / blocked / completed events
 - 资产使用自动记录
 
 v0.3 引入智能选择：

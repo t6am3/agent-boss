@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createRequire } from 'node:module';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
+const { createApp } = require('../dist/core/App.js');
 const { Supervisor } = require('../dist/core/Supervisor.js');
 const { Reporter } = require('../dist/core/Reporter.js');
 
@@ -88,4 +92,31 @@ test('Reporter renders mission status board with blockers and next action', () =
   assert.match(output, /Mission Status Board - m-002/);
   assert.match(output, /Worker asked a noisy reversible question/);
   assert.match(output, /Reject noisy confirmation/);
+});
+
+test('MockMissionRunner completes a mission and records supervisor decisions', async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-core-'));
+  const app = await createApp({ cwd });
+
+  try {
+    await app.assets.addAsset({
+      id: 'codex',
+      type: 'agent',
+      name: 'Codex',
+      scenes: ['code'],
+    });
+    const mission = await app.missions.createMission('Ship the runner loop', ['codex']);
+    const result = await app.runner.run(mission, { assetId: 'codex', scenario: 'confirmation' });
+    const finalMission = await app.missions.getMission(mission.id);
+    const events = await app.missions.listEvents(mission.id);
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.escalatedToOwner, false);
+    assert.equal(finalMission.status, 'completed');
+    assert.equal(finalMission.progress, 100);
+    assert.ok(events.some((event) => event.type === 'confirmation_requested'));
+    assert.ok(events.some((event) => event.type === 'decision'));
+  } finally {
+    await app.db.close();
+  }
 });
