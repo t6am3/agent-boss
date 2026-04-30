@@ -42,7 +42,7 @@ export class Reporter {
 
   renderMissionDetail(mission: Mission, events: MissionEvent[] = []): string {
     const recent = events.slice(-5).map((event) =>
-      `- [${event.type}/${event.actor}] ${event.content}`,
+      `- ${formatTime(event.createdAt)} [${event.type}/${event.actor}] ${event.content}`,
     );
 
     return [
@@ -57,10 +57,50 @@ export class Reporter {
       `Assets: ${mission.assetIds.length > 0 ? mission.assetIds.join(', ') : '-'}`,
       `Next: ${mission.nextAction ?? '-'}`,
       `Summary: ${mission.summary ?? '-'}`,
+      `Updated: ${formatTime(mission.updatedAt)}`,
       '',
       'Recent events:',
       recent.length > 0 ? recent.join('\n') : '- none',
     ].join('\n');
+  }
+
+  renderStatusBoard(mission: Mission, events: MissionEvent[]): string {
+    const recent = events.slice(-6);
+    const blockers = events.filter((event) =>
+      event.type === 'blocked' || event.type === 'resource_escalation',
+    );
+    const lastBlocker = blockers.at(-1);
+    const lastProgress = events.filter((event) => event.type === 'progress').at(-1);
+
+    return [
+      `Mission Status Board - ${mission.id}`,
+      `Goal: ${mission.goal}`,
+      '',
+      `Stage: ${mission.stage} | Status: ${mission.status} | Progress: ${mission.progress}%`,
+      `Risk: ${mission.risk} | Owner needed: ${mission.ownerNeeded ? 'yes' : 'no'}`,
+      `Current assignee: ${mission.currentAssignee ?? '-'}`,
+      `Assets: ${mission.assetIds.length > 0 ? mission.assetIds.join(', ') : '-'}`,
+      `Last progress: ${lastProgress ? lastProgress.content : mission.summary ?? 'No progress recorded yet.'}`,
+      `Blocker: ${lastBlocker ? lastBlocker.content : 'None recorded.'}`,
+      `Next: ${mission.nextAction ?? 'Record the next event or assign a worker.'}`,
+      `Updated: ${formatTime(mission.updatedAt)} (${formatAge(mission.updatedAt)} ago)`,
+      '',
+      'Recent signal:',
+      recent.length > 0
+        ? recent.map((event) => `- ${formatTime(event.createdAt)} [${event.type}/${event.actor}] ${event.content}`).join('\n')
+        : '- none',
+    ].join('\n');
+  }
+
+  renderMissionLog(events: MissionEvent[]): string {
+    if (events.length === 0) {
+      return 'No mission events recorded.';
+    }
+
+    return events.map((event) => {
+      const metadata = event.metadata ? ` ${JSON.stringify(event.metadata)}` : '';
+      return `${formatTime(event.createdAt)}  ${event.type.padEnd(22)}  ${event.actor.padEnd(12)}  ${event.content}${metadata}`;
+    }).join('\n');
   }
 
   renderReport(mission: Mission, events: MissionEvent[]): string {
@@ -82,4 +122,24 @@ export class Reporter {
 
 function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, max - 3)}...`;
+}
+
+function formatTime(date: Date): string {
+  return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, 'Z');
+}
+
+function formatAge(date: Date): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+  return `${Math.floor(hours / 24)}d`;
 }

@@ -5,25 +5,55 @@ import {
   AssetStatus,
   AssetType,
   CostMode,
+  MissionStage,
   MissionEventType,
+  MissionStatus,
+  RiskLevel,
   Score,
+  UpdateAssetInput,
 } from './domain/types';
-import { createApp } from './core/App';
+import { AppContext, createApp } from './core/App';
 
 interface ParsedArgs {
   positionals: string[];
   flags: Record<string, string | true>;
 }
 
-async function main(): Promise<void> {
-  const [command, ...rest] = process.argv.slice(2);
+interface GlobalArgs {
+  command?: string;
+  rest: string[];
+  dbPath?: string;
+  help: boolean;
+  version: boolean;
+}
 
-  if (command === 'help' || command === undefined) {
+type MissionUpdatePatch = Partial<{
+  stage: MissionStage;
+  status: MissionStatus;
+  progress: number;
+  risk: RiskLevel;
+  ownerNeeded: boolean;
+  currentAssignee: string;
+  nextAction: string;
+  summary: string;
+  assetIds: string[];
+}>;
+
+async function main(): Promise<void> {
+  const global = parseGlobalArgs(process.argv.slice(2));
+  const { command, rest } = global;
+
+  if (global.version) {
+    console.log('agent-boss 0.1.0');
+    return;
+  }
+
+  if (global.help || command === 'help' || command === undefined) {
     showHelp();
     return;
   }
 
-  const app = await createApp();
+  const app = await createApp({ dbPath: global.dbPath });
   try {
     switch (command) {
       case 'assets':
@@ -43,7 +73,7 @@ async function main(): Promise<void> {
   }
 }
 
-async function handleAssets(app: Awaited<ReturnType<typeof createApp>>, args: string[]): Promise<void> {
+async function handleAssets(app: AppContext, args: string[]): Promise<void> {
   const [action, ...rest] = args;
   const parsed = parseArgs(rest);
 
@@ -83,10 +113,23 @@ async function handleAssets(app: Awaited<ReturnType<typeof createApp>>, args: st
     return;
   }
 
-  throw new Error('Usage: agent-boss assets <add|list|show>');
+  if (action === 'update') {
+    const id = parsed.positionals[0];
+    requireArg(id, 'Usage: agent-boss assets update <id> [--name "..."] [--status ready]');
+    const patch = readAssetPatch(parsed);
+    if (Object.keys(patch).length === 0) {
+      throw new Error('No asset fields provided. Use flags like --name, --status, --plan, --scenes.');
+    }
+    const asset = await app.assets.updateAsset(id, patch);
+    console.log(`Asset updated: ${asset.id}`);
+    console.log(JSON.stringify(asset, null, 2));
+    return;
+  }
+
+  throw new Error('Usage: agent-boss assets <add|update|list|show>');
 }
 
-async function handleMission(app: Awaited<ReturnType<typeof createApp>>, args: string[]): Promise<void> {
+async function handleMission(app: AppContext, args: string[]): Promise<void> {
   const [action, ...rest] = args;
   const parsed = parseArgs(rest);
 
@@ -111,6 +154,59 @@ async function handleMission(app: Awaited<ReturnType<typeof createApp>>, args: s
     }
     const mission = await requireMission(app, id);
     console.log(app.reporter.renderMissionDetail(mission, await app.missions.listEvents(id)));
+    return;
+  }
+
+  if (action === 'watch') {
+    const id = parsed.positionals[0];
+    requireArg(id, 'Usage: agent-boss mission watch <missionId> [--follow] [--interval 3] [--cycles 10]');
+    const follow = parsed.flags.follow === true;
+    const intervalSeconds = parsePositiveInteger(readFlag(parsed, 'interval') ?? '3', 'interval');
+    const cycles = readFlag(parsed, 'cycles')
+      ? parsePositiveInteger(readFlag(parsed, 'cycles') ?? '1', 'cycles')
+      : follow ? Number.POSITIVE_INFINITY : 1;
+
+    for (let index = 0; index < cycles; index += 1) {
+      const mission = await requireMission(app, id);
+      console.log(app.reporter.renderStatusBoard(mission, await app.missions.listRecentEvents(id, 20)));
+      if (index < cycles - 1) {
+        console.log('');
+        await sleep(intervalSeconds * 1000);
+      }
+    }
+    return;
+  }
+
+  if (action === 'log') {
+    const id = parsed.positionals[0];
+    requireArg(id, 'Usage: agent-boss mission log <missionId> [--limit 50]');
+    await requireMission(app, id);
+    const limit = readFlag(parsed, 'limit')
+      ? parsePositiveInteger(readFlag(parsed, 'limit') ?? '50', 'limit')
+      : undefined;
+    const events = await app.missions.listEvents(id);
+    console.log(app.reporter.renderMissionLog(limit ? events.slice(-limit) : events));
+    return;
+  }
+
+  if (action === 'update') {
+    const id = parsed.positionals[0];
+    requireArg(id, 'Usage: agent-boss mission update <missionId> [--stage executing] [--progress 40]');
+    const patch = readMissionPatch(parsed);
+    if (Object.keys(patch).length === 0) {
+      throw new Error('No mission fields provided. Use flags like --stage, --status, --progress, --risk, --next.');
+    }
+    const mission = await app.missions.updateMission(id, patch);
+    const eventType = patch.status === 'blocked' ? 'blocked' : 'progress';
+    await app.missions.addEvent({
+      missionId: id,
+      type: eventType,
+      actor: readFlag(parsed, 'actor') ?? 'boss',
+      content: readFlag(parsed, 'event') ?? 'Mission state updated.',
+      metadata: { patch },
+    });
+    console.log(`Mission updated: ${id}`);
+    console.log(app.reporter.renderStatusBoard(mission, await app.missions.listRecentEvents(id, 20)));
     return;
   }
 
@@ -184,10 +280,10 @@ async function handleMission(app: Awaited<ReturnType<typeof createApp>>, args: s
     return;
   }
 
-  throw new Error('Usage: agent-boss mission <create|status|report|event|decide|complete>');
+  throw new Error('Usage: agent-boss mission <create|status|watch|log|update|report|event|decide|complete>');
 }
 
-async function handleJudge(app: Awaited<ReturnType<typeof createApp>>, args: string[]): Promise<void> {
+async function handleJudge(app: AppContext, args: string[]): Promise<void> {
   const parsed = parseArgs(args);
   const [missionId, score, ...commentParts] = parsed.positionals;
   requireArg(missionId && score && commentParts.length > 0 ? missionId : '', 'Usage: agent-boss judge <missionId> <score> "<comment>"');
@@ -205,7 +301,7 @@ async function handleJudge(app: Awaited<ReturnType<typeof createApp>>, args: str
 }
 
 async function updateMissionFromEvent(
-  app: Awaited<ReturnType<typeof createApp>>,
+  app: AppContext,
   missionId: string,
   type: MissionEventType,
   actor: string,
@@ -235,7 +331,7 @@ async function updateMissionFromEvent(
   }
 }
 
-async function requireMission(app: Awaited<ReturnType<typeof createApp>>, id: string) {
+async function requireMission(app: AppContext, id: string) {
   const mission = await app.missions.getMission(id);
   if (!mission) {
     throw new Error(`Mission not found: ${id}`);
@@ -243,7 +339,7 @@ async function requireMission(app: Awaited<ReturnType<typeof createApp>>, id: st
   return mission;
 }
 
-async function requireAsset(app: Awaited<ReturnType<typeof createApp>>, id: string) {
+async function requireAsset(app: AppContext, id: string) {
   const asset = await app.assets.getAsset(id);
   if (!asset) {
     throw new Error(`Asset not found: ${id}`);
@@ -274,9 +370,95 @@ function parseArgs(args: string[]): ParsedArgs {
   return { positionals, flags };
 }
 
+function parseGlobalArgs(args: string[]): GlobalArgs {
+  const result: GlobalArgs = { rest: [], help: false, version: false };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === '--db') {
+      const next = args[index + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('Usage: agent-boss --db <path> <command>');
+      }
+      result.dbPath = next;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--help' || arg === '-h') {
+      result.help = true;
+      continue;
+    }
+
+    if (arg === '--version' || arg === '-v') {
+      result.version = true;
+      continue;
+    }
+
+    result.command = arg;
+    result.rest = args.slice(index + 1);
+    return result;
+  }
+
+  return result;
+}
+
 function readFlag(parsed: ParsedArgs, name: string): string | undefined {
   const value = parsed.flags[name];
   return typeof value === 'string' ? value : undefined;
+}
+
+function readRawFlag(parsed: ParsedArgs, name: string): string | true | undefined {
+  return parsed.flags[name];
+}
+
+function readAssetPatch(parsed: ParsedArgs): UpdateAssetInput {
+  const patch: UpdateAssetInput = {};
+  const type = readFlag(parsed, 'type');
+  const name = readFlag(parsed, 'name');
+  const provider = readFlag(parsed, 'provider');
+  const plan = readFlag(parsed, 'plan');
+  const scenes = splitCsv(readFlag(parsed, 'scenes'));
+  const cost = readFlag(parsed, 'cost');
+  const status = readFlag(parsed, 'status');
+  const notes = readFlag(parsed, 'notes');
+
+  if (type) patch.type = parseAssetType(type);
+  if (name) patch.name = name;
+  if (provider) patch.provider = provider;
+  if (plan) patch.plan = plan;
+  if (scenes) patch.scenes = scenes;
+  if (cost) patch.costMode = parseCostMode(cost);
+  if (status) patch.status = parseAssetStatus(status);
+  if (notes) patch.notes = notes;
+
+  return patch;
+}
+
+function readMissionPatch(parsed: ParsedArgs): MissionUpdatePatch {
+  const patch: MissionUpdatePatch = {};
+  const stage = readFlag(parsed, 'stage');
+  const status = readFlag(parsed, 'status');
+  const progress = readFlag(parsed, 'progress');
+  const risk = readFlag(parsed, 'risk');
+  const ownerNeeded = readRawFlag(parsed, 'owner-needed');
+  const assignee = readFlag(parsed, 'assignee') ?? readFlag(parsed, 'current-assignee');
+  const next = readFlag(parsed, 'next');
+  const summary = readFlag(parsed, 'summary');
+  const assetIds = splitCsv(readFlag(parsed, 'assets'));
+
+  if (stage) patch.stage = parseMissionStage(stage);
+  if (status) patch.status = parseMissionStatus(status);
+  if (progress) patch.progress = parseProgress(progress);
+  if (risk) patch.risk = parseRiskLevel(risk);
+  if (ownerNeeded !== undefined) patch.ownerNeeded = parseBooleanFlag(ownerNeeded);
+  if (assignee) patch.currentAssignee = assignee;
+  if (next) patch.nextAction = next;
+  if (summary) patch.summary = summary;
+  if (assetIds) patch.assetIds = assetIds;
+
+  return patch;
 }
 
 function splitCsv(value: string | undefined): string[] | undefined {
@@ -321,8 +503,49 @@ function parseMissionEventType(value: string): MissionEventType {
   ], 'mission event type');
 }
 
+function parseMissionStage(value: string): MissionStage {
+  return parseUnion(value, ['intake', 'planning', 'executing', 'reviewing', 'reporting', 'completed'], 'mission stage');
+}
+
+function parseMissionStatus(value: string): MissionStatus {
+  return parseUnion(value, ['active', 'blocked', 'waiting_resource', 'waiting_owner', 'completed', 'failed', 'cancelled'], 'mission status');
+}
+
+function parseRiskLevel(value: string): RiskLevel {
+  return parseUnion(value, ['low', 'medium', 'high'], 'risk level');
+}
+
 function parseScore(value: string): Score {
   return parseUnion(value, ['A+', 'A', 'B+', 'B', 'C', 'D'], 'score');
+}
+
+function parseProgress(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+    throw new Error(`Invalid progress: ${value}. Allowed: integer 0-100`);
+  }
+  return parsed;
+}
+
+function parsePositiveInteger(value: string, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`Invalid ${label}: ${value}. Allowed: positive integer`);
+  }
+  return parsed;
+}
+
+function parseBooleanFlag(value: string | true): boolean {
+  if (value === true) {
+    return true;
+  }
+  if (/^(true|yes|1)$/i.test(value)) {
+    return true;
+  }
+  if (/^(false|no|0)$/i.test(value)) {
+    return false;
+  }
+  throw new Error(`Invalid boolean: ${value}. Allowed: true/false`);
 }
 
 function parseUnion<T extends string>(value: string, allowed: readonly T[], label: string): T {
@@ -332,12 +555,21 @@ function parseUnion<T extends string>(value: string, allowed: readonly T[], labe
   throw new Error(`Invalid ${label}: ${value}. Allowed: ${allowed.join(', ')}`);
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function showHelp(): void {
   console.log(`
 Agent Boss v0.4 skeleton
 
 Usage:
+  agent-boss [--db .agent-boss/dev.sqlite] <command>
+
   agent-boss assets add <id> --type agent --name "Codex" --plan coding-plan --scenes code,refactor
+  agent-boss assets update <id> --status limited --notes "quota low"
   agent-boss assets list
   agent-boss assets show <id>
 
@@ -345,6 +577,9 @@ Usage:
   agent-boss mission create "<goal>" --assets codex,claude-code
   agent-boss mission list
   agent-boss mission status [missionId]
+  agent-boss mission watch <missionId> [--follow] [--interval 3] [--cycles 10]
+  agent-boss mission log <missionId> [--limit 50]
+  agent-boss mission update <missionId> --stage executing --progress 40 --next "review"
   agent-boss mission report <missionId>
   agent-boss mission event <missionId> "<content>" --type progress --actor codex
   agent-boss mission decide <missionId> "<question>"

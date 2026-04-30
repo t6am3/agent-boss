@@ -5,10 +5,19 @@ import sqlite3 from 'sqlite3';
 export class Database {
   private constructor(private readonly db: sqlite3.Database) {}
 
-  static async openDefault(cwd = process.cwd()): Promise<Database> {
+  static async openDefault(cwd = process.cwd(), dbPath = process.env.AGENT_BOSS_DB): Promise<Database> {
+    if (dbPath) {
+      return Database.openFile(path.resolve(cwd, dbPath));
+    }
+
     const dataDir = path.join(cwd, '.agent-boss');
     mkdirSync(dataDir, { recursive: true });
-    const db = new Database(new sqlite3.Database(path.join(dataDir, 'agent-boss.sqlite')));
+    return Database.openFile(path.join(dataDir, 'agent-boss.sqlite'));
+  }
+
+  static async openFile(dbPath: string): Promise<Database> {
+    mkdirSync(path.dirname(dbPath), { recursive: true });
+    const db = new Database(new sqlite3.Database(dbPath));
     await db.initialize();
     return db;
   }
@@ -38,6 +47,16 @@ export class Database {
   }
 
   private async initialize(): Promise<void> {
+    await this.run('PRAGMA foreign_keys = ON');
+
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at INTEGER NOT NULL
+      )
+    `);
+
     await this.run(`
       CREATE TABLE IF NOT EXISTS assets (
         id TEXT PRIMARY KEY,
@@ -111,5 +130,10 @@ export class Database {
         created_at INTEGER NOT NULL
       )
     `);
+
+    await this.run(
+      'INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
+      [1, 'initial mission-first schema', Date.now()],
+    );
   }
 }

@@ -4,6 +4,7 @@ import {
   AssetStatus,
   AssetType,
   CostMode,
+  UpdateAssetInput,
 } from '../domain/types';
 import { Database } from '../storage/Database';
 
@@ -62,6 +63,52 @@ export class AssetLedger {
     );
 
     return asset;
+  }
+
+  async updateAsset(id: string, patch: UpdateAssetInput): Promise<Asset> {
+    const current = await this.getAsset(id);
+    if (!current) {
+      throw new Error(`Asset not found: ${id}`);
+    }
+
+    const next: Asset = {
+      ...current,
+      ...patch,
+      scenes: patch.scenes ?? current.scenes,
+      costMode: patch.costMode ?? current.costMode,
+      status: patch.status ?? current.status,
+      updatedAt: new Date(),
+    };
+
+    await this.db.run(
+      `
+      UPDATE assets SET
+        type = ?,
+        name = ?,
+        provider = ?,
+        plan = ?,
+        scenes = ?,
+        cost_mode = ?,
+        status = ?,
+        notes = ?,
+        updated_at = ?
+      WHERE id = ?
+      `,
+      [
+        next.type,
+        next.name,
+        next.provider ?? null,
+        next.plan ?? null,
+        JSON.stringify(next.scenes),
+        next.costMode,
+        next.status,
+        next.notes ?? null,
+        next.updatedAt.getTime(),
+        next.id,
+      ],
+    );
+
+    return next;
   }
 
   async listAssets(): Promise<Asset[]> {

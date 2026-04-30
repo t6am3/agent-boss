@@ -48,3 +48,44 @@ test('Reporter renders owner-oriented mission report', () => {
   assert.match(output, /Initial refactor draft is complete/);
   assert.match(output, /codex, claude-code/);
 });
+
+test('Reporter renders mission status board with blockers and next action', () => {
+  const reporter = new Reporter();
+  const mission = {
+    id: 'm-002',
+    goal: 'Build the mission status board',
+    stage: 'executing',
+    status: 'blocked',
+    progress: 55,
+    risk: 'high',
+    ownerNeeded: false,
+    currentAssignee: 'boss',
+    nextAction: 'Reject noisy confirmation and keep moving.',
+    assetIds: ['codex'],
+    createdAt: new Date('2026-04-29T00:00:00Z'),
+    updatedAt: new Date('2026-04-29T00:05:00Z'),
+  };
+
+  const output = reporter.renderStatusBoard(mission, [
+    {
+      id: 'ev-1',
+      missionId: 'm-002',
+      type: 'progress',
+      actor: 'boss',
+      content: 'CLI update command is implemented.',
+      createdAt: new Date('2026-04-29T00:03:00Z'),
+    },
+    {
+      id: 'ev-2',
+      missionId: 'm-002',
+      type: 'blocked',
+      actor: 'worker',
+      content: 'Worker asked a noisy reversible question.',
+      createdAt: new Date('2026-04-29T00:04:00Z'),
+    },
+  ]);
+
+  assert.match(output, /Mission Status Board - m-002/);
+  assert.match(output, /Worker asked a noisy reversible question/);
+  assert.match(output, /Reject noisy confirmation/);
+});

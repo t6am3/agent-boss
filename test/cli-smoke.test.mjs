@@ -27,6 +27,10 @@ test('CLI smoke: assets, mission, supervisor decision, report, judge', () => {
     /Asset added: claude-code/,
   );
   assert.match(runCli(cwd, ['assets', 'list']), /codex/);
+  assert.match(
+    runCli(cwd, ['assets', 'update', 'codex', '--status', 'limited', '--notes', 'quota is being watched']),
+    /Asset updated: codex/,
+  );
 
   const created = runCli(cwd, [
     'mission',
@@ -39,6 +43,26 @@ test('CLI smoke: assets, mission, supervisor decision, report, judge', () => {
   assert.match(created, /Assets: codex, claude-code/);
 
   assert.match(runCli(cwd, ['mission', 'list']), /m-001/);
+  assert.match(
+    runCli(cwd, [
+      'mission',
+      'update',
+      'm-001',
+      '--stage',
+      'executing',
+      '--progress',
+      '35',
+      '--assignee',
+      'codex',
+      '--next',
+      'Review login edge cases.',
+      '--event',
+      'Implementation pass is moving.',
+    ]),
+    /Mission Status Board - m-001/,
+  );
+  assert.match(runCli(cwd, ['mission', 'watch', 'm-001']), /Review login edge cases/);
+  assert.match(runCli(cwd, ['mission', 'log', 'm-001', '--limit', '3']), /Implementation pass is moving/);
 
   const decision = runCli(cwd, [
     'mission',
@@ -61,4 +85,15 @@ test('CLI smoke: assets, mission, supervisor decision, report, judge', () => {
     runCli(cwd, ['judge', 'm-001', 'A', 'Safe and useful.', '--assets', 'codex,claude-code']),
     /Evaluation recorded:/,
   );
+});
+
+test('CLI supports an explicit database path', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-db-'));
+  const dbPath = path.join(cwd, 'state', 'custom.sqlite');
+
+  assert.match(
+    runCli(cwd, ['--db', dbPath, 'assets', 'add', 'local-codex', '--type', 'agent', '--name', 'Local Codex']),
+    /Asset added: local-codex/,
+  );
+  assert.match(runCli(cwd, ['--db', dbPath, 'assets', 'list']), /local-codex/);
 });

@@ -7,7 +7,7 @@ import {
   RiskLevel,
 } from '../domain/types';
 import { Database } from '../storage/Database';
-import { missionIdFromCount, randomId } from './ids';
+import { missionIdFromNumber, randomId } from './ids';
 
 interface MissionRow {
   id: string;
@@ -56,10 +56,9 @@ export class MissionStore {
   constructor(private readonly db: Database) {}
 
   async createMission(goal: string, assetIds: string[] = []): Promise<Mission> {
-    const countRow = await this.db.get<{ count: number }>('SELECT COUNT(*) as count FROM missions');
     const now = Date.now();
     const mission: Mission = {
-      id: missionIdFromCount(countRow?.count ?? 0),
+      id: await this.nextMissionId(),
       goal,
       stage: 'planning',
       status: 'active',
@@ -218,6 +217,23 @@ export class MissionStore {
       [missionId],
     );
     return rows.map(toMissionEvent);
+  }
+
+  async listRecentEvents(missionId: string, limit: number): Promise<MissionEvent[]> {
+    const rows = await this.db.all<MissionEventRow>(
+      'SELECT * FROM mission_events WHERE mission_id = ? ORDER BY created_at DESC LIMIT ?',
+      [missionId, limit],
+    );
+    return rows.map(toMissionEvent).reverse();
+  }
+
+  private async nextMissionId(): Promise<string> {
+    const rows = await this.db.all<{ id: string }>("SELECT id FROM missions WHERE id LIKE 'm-%'");
+    const max = rows.reduce((highest, row) => {
+      const match = /^m-(\d+)$/.exec(row.id);
+      return match ? Math.max(highest, Number(match[1])) : highest;
+    }, 0);
+    return missionIdFromNumber(max + 1);
   }
 }
 

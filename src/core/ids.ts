@@ -3,6 +3,6 @@ export function randomId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${suffix}`;
 }
 
-export function missionIdFromCount(count: number): string {
-  return `m-${String(count + 1).padStart(3, '0')}`;
+export function missionIdFromNumber(value: number): string {
+  return `m-${String(value).padStart(3, '0')}`;
 }

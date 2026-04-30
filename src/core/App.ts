@@ -14,8 +14,13 @@ export interface AppContext {
   evaluations: EvaluationEngine;
 }
 
-export async function createApp(): Promise<AppContext> {
-  const db = await Database.openDefault();
+export interface CreateAppOptions {
+  cwd?: string;
+  dbPath?: string;
+}
+
+export async function createApp(options: CreateAppOptions = {}): Promise<AppContext> {
+  const db = await Database.openDefault(options.cwd, options.dbPath);
   const assets = new AssetLedger(db);
   const missions = new MissionStore(db);
   return {

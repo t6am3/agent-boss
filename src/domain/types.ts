@@ -28,6 +28,8 @@ export interface AddAssetInput {
   notes?: string;
 }
 
+export type UpdateAssetInput = Partial<Omit<AddAssetInput, 'id'>>;
+
 export type MissionStage =
   | 'intake'
   | 'planning'

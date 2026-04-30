@@ -33,12 +33,13 @@ v0.1 不做：
 
 ### 1.3 重写原则
 
-当前 `src/` 代码基于 PRD v0.3，核心抽象是 `ask/query/task/router/judge`。这套抽象已经偏离 PRD v0.4 的 Mission 监工台方向，不再作为实现依据。
+历史 `src/` 代码基于 PRD v0.3，核心抽象是 `ask/query/task/router/judge`。这套抽象已经偏离 PRD v0.4 的 Mission 监工台方向，不再作为实现依据。
 
-v0.4 实现采用直接重写策略：
+v0.4 实现采用直接重写策略，当前状态如下：
 
-- 先将现有 `src/` 归档为 `archive/src-v0.3-task-router/`。
-- 新建干净的 `src/`，从 Mission、Asset、Supervisor、Reporter 开始实现。
+- 旧 `src/` 已归档为 `archive/src-v0.3-task-router/`。
+- v0.3 计划文档已归档为 `archive/plans-v0.3/`。
+- 新 `src/` 已从 Mission、Asset、Supervisor、Reporter 开始实现。
 - 不做向后兼容，不保留 legacy query 主线，不把任何 v0.3 模块作为架构约束。
 - 旧代码只通过 git history 保留历史价值；实现时不得以复用旧模块为目标。
 - 如果某段旧 adapter 代码确实有价值，必须在新架构完成后按新接口重新移植，而不是原样接入。
@@ -49,8 +50,8 @@ v0.4 实现采用直接重写策略：
 
 ```text
 CLI
-├── assets add/list/show
-├── mission create/status/report/event/decide/complete
+├── assets add/update/list/show
+├── mission create/list/status/watch/log/update/report/event/decide/complete
 └── judge
 
 Core
@@ -516,40 +517,47 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 
 ### Phase 0：归档旧代码并重建 src
 
-- 移动现有 `src/` 到 `archive/src-v0.3-task-router/`。
+- 状态：已完成。
+- 移动历史 `src/` 到 `archive/src-v0.3-task-router/`。
+- 归档 v0.3 计划到 `archive/plans-v0.3/`。
 - 新建干净的 `src/` 目录。
 - 新入口只暴露 v0.4 CLI：`assets`、`mission`、`judge`。
 - 暂不实现旧 `ask` 命令，避免产品主线继续滑回 query router。
 
 ### Phase 1：存储与类型
 
+- 状态：已完成基础版。
 - 新增 v0.4 类型：Asset、Mission、MissionEvent、SupervisorDecision、Evaluation。
-- 新增 SQLite 初始化和基础 repository。
+- 新增 SQLite 初始化、schema migration 标记和基础 repository。
 - 不导入 v0.3 类型，不建立 compatibility layer。
 
 ### Phase 2：Asset Ledger
 
-- 实现 `assets add/list/show`。
+- 状态：已完成基础版。
+- 实现 `assets add/update/list/show`。
 - 支持 scene、costMode、status。
 - 写入和读取 SQLite。
 
 ### Phase 3：Mission Store + CLI
 
-- 实现 `mission create/status/event/complete`。
+- 状态：已完成基础版。
+- 实现 `mission create/status/watch/log/update/event/complete`。
 - Mission create 自动写入初始 events。
 - Status board 使用 Mission 当前字段。
 
 ### Phase 4：Supervisor + Reporter
 
+- 状态：已完成基础版。
 - 实现 `mission decide`。
 - 实现规则分类和代决策记录。
-- 实现 `mission report`。
+- 实现 `mission report` 和 `mission watch` 老板视角状态板。
 
 ### Phase 5：Judge
 
+- 状态：已完成基础版。
 - 将 `judge` 扩展为支持 missionId。
 - 写入 Evaluation。
-- 简单更新资产表现或先记录 events。
+- 先记录 `judged` event；资产表现排行留给后续 usage ledger。
 
 ### Phase 6：全新接入真实 Agent
 
@@ -566,7 +574,7 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 | 自动监工过早智能化 | 行为不稳定 | 先用规则，不接 LLM 决策 |
 | 真实账单接入复杂 | 拖慢 MVP | 先做手动资产台账 |
 | 旧代码继续影响方向 | 产品主线跑偏 | Phase 0 直接归档旧 `src/`，从 v0.4 重写 |
-| SQLite schema 未来变化 | 迁移成本 | v0.1 简单 `CREATE IF NOT EXISTS`，后续再加 migrations |
+| SQLite schema 未来变化 | 迁移成本 | v0.1 已加入 schema migration 标记，后续补真实迁移脚本 |
 | 下层 Agent 状态不可观测 | 无法真监工 | v0.1 先支持手动 event，后续 adapter 自动写 event |
 
 ---
