@@ -3,7 +3,7 @@ import { Mission, MissionEventType, SupervisorDecision } from '../domain/types';
 import { MissionStore } from './MissionStore';
 import { Supervisor } from './Supervisor';
 
-export type MissionRunnerKind = 'mock' | 'openclaw' | 'codex';
+export type MissionRunnerKind = 'mock' | 'openclaw' | 'codex' | 'claude' | 'hermes';
 export type MockRunScenario = 'happy' | 'confirmation' | 'permission' | 'blocked';
 export type MissionRunStatus = 'completed' | 'waiting_owner' | 'blocked';
 
@@ -19,6 +19,8 @@ export interface MissionRunOptions {
   model?: string;
   sandbox?: string;
   profile?: string;
+  provider?: string;
+  permissionMode?: string;
 }
 
 export interface MissionRunResult {
@@ -57,6 +59,7 @@ export class MockMissionRunner implements MissionRunner {
       risk: mission.risk,
       ownerNeeded: false,
       currentAssignee: assetId,
+      assetIds: includeAsset(mission.assetIds, assetId),
       nextAction: `${assetId} is executing the first pass.`,
     });
 
@@ -221,6 +224,7 @@ export class OpenClawRunner implements MissionRunner {
       risk: mission.risk,
       ownerNeeded: false,
       currentAssignee: assetId,
+      assetIds: includeAsset(mission.assetIds, assetId),
       nextAction: 'OpenClaw is running one agent turn.',
     });
 
@@ -345,6 +349,7 @@ export class CodexRunner implements MissionRunner {
       risk: mission.risk,
       ownerNeeded: false,
       currentAssignee: assetId,
+      assetIds: includeAsset(mission.assetIds, assetId),
       nextAction: 'Codex is running one exec turn.',
     });
 
@@ -440,6 +445,279 @@ export class CodexRunner implements MissionRunner {
   }
 }
 
+export class ClaudeRunner implements MissionRunner {
+  constructor(
+    private readonly missions: MissionStore,
+    private readonly supervisor: Supervisor,
+    private readonly defaultCommand = process.env.AGENT_BOSS_CLAUDE_BIN ?? 'claude',
+    private readonly defaultModel = process.env.AGENT_BOSS_CLAUDE_MODEL,
+    private readonly defaultPermissionMode = process.env.AGENT_BOSS_CLAUDE_PERMISSION_MODE ?? 'dontAsk',
+  ) {}
+
+  async run(mission: Mission, options: MissionRunOptions = {}): Promise<MissionRunResult> {
+    const assetId = options.assetId ?? mission.currentAssignee ?? 'claude-code';
+    const command = options.command ?? this.defaultCommand;
+    const timeoutSeconds = options.timeoutSeconds ?? 180;
+    const model = options.model ?? this.defaultModel;
+    const permissionMode = options.permissionMode ?? this.defaultPermissionMode;
+
+    await this.record(mission.id, 'assigned', 'boss', `Assigned mission to Claude Code via ${command}.`, {
+      runner: 'claude',
+      assetId,
+      command,
+      model,
+      permissionMode,
+      timeoutSeconds,
+    });
+    await this.missions.updateMission(mission.id, {
+      stage: 'executing',
+      status: 'active',
+      progress: Math.max(mission.progress, 20),
+      risk: mission.risk,
+      ownerNeeded: false,
+      currentAssignee: assetId,
+      assetIds: includeAsset(mission.assetIds, assetId),
+      nextAction: 'Claude Code is running one print turn.',
+    });
+
+    const prompt = options.message ?? buildWorkerPrompt(mission);
+    await this.record(mission.id, 'progress', assetId, 'Claude Code print turn started.', {
+      runner: 'claude',
+      model,
+      permissionMode,
+      timeoutSeconds,
+    });
+
+    const args = buildClaudeArgs(prompt, { ...options, model, permissionMode });
+
+    try {
+      const execution = await runCommand(command, args, (timeoutSeconds + 10) * 1000);
+      const response = parseClaudeResponse(execution.stdout);
+      const summary = response.text
+        ? `Claude Code completed: ${truncate(response.text, 500)}`
+        : 'Claude Code completed without textual output.';
+
+      await this.record(mission.id, 'progress', assetId, summary, {
+        runner: 'claude',
+        stdout: truncate(execution.stdout, 4000),
+        stderr: truncate(execution.stderr, 4000),
+        parsed: response.parsed,
+      });
+      await this.missions.updateMission(mission.id, {
+        stage: 'completed',
+        status: 'completed',
+        progress: 100,
+        risk: 'low',
+        ownerNeeded: false,
+        currentAssignee: assetId,
+        summary,
+        nextAction: 'Generate report and judge the mission.',
+        completedAt: new Date(),
+      });
+      await this.record(mission.id, 'completed', 'boss', summary, { runner: 'claude', assetId, model });
+
+      return {
+        missionId: mission.id,
+        runner: 'claude',
+        assetId,
+        status: 'completed',
+        escalatedToOwner: false,
+        summary,
+      };
+    } catch (err) {
+      return this.handleFailure(mission, assetId, command, args, err);
+    }
+  }
+
+  private async handleFailure(
+    mission: Mission,
+    assetId: string,
+    command: string,
+    args: string[],
+    err: unknown,
+  ): Promise<MissionRunResult> {
+    const failure = commandFailureToText(err);
+    const category = classifyRunnerFailure(failure);
+    const escalatedToOwner = category === 'money' || category === 'permission' || category === 'destructive';
+    const status = escalatedToOwner ? 'waiting_owner' : 'blocked';
+    const summary = `Claude Code runner failed: ${truncate(failure, 500)}`;
+
+    await this.record(mission.id, escalatedToOwner ? 'resource_escalation' : 'blocked', assetId, summary, {
+      runner: 'claude',
+      category,
+      command,
+      args: redactArgs(args),
+    });
+    await this.missions.updateMission(mission.id, {
+      stage: 'executing',
+      status,
+      progress: Math.max(mission.progress, 20),
+      risk: 'high',
+      ownerNeeded: escalatedToOwner,
+      currentAssignee: assetId,
+      summary,
+      nextAction: escalatedToOwner
+        ? 'Owner action is required before Claude Code can continue.'
+        : 'Check Claude Code auth/model compatibility or rerun with --runner mock while Claude Code is repaired.',
+    });
+
+    return {
+      missionId: mission.id,
+      runner: 'claude',
+      assetId,
+      status,
+      escalatedToOwner,
+      summary,
+    };
+  }
+
+  private async record(
+    missionId: string,
+    type: MissionEventType,
+    actor: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.missions.addEvent({ missionId, type, actor, content, metadata });
+  }
+}
+
+export class HermesRunner implements MissionRunner {
+  constructor(
+    private readonly missions: MissionStore,
+    private readonly supervisor: Supervisor,
+    private readonly defaultCommand = process.env.AGENT_BOSS_HERMES_BIN ?? 'hermes',
+    private readonly defaultModel = process.env.AGENT_BOSS_HERMES_MODEL,
+    private readonly defaultProvider = process.env.AGENT_BOSS_HERMES_PROVIDER,
+  ) {}
+
+  async run(mission: Mission, options: MissionRunOptions = {}): Promise<MissionRunResult> {
+    const assetId = options.assetId ?? mission.currentAssignee ?? 'hermes';
+    const command = options.command ?? this.defaultCommand;
+    const timeoutSeconds = options.timeoutSeconds ?? 180;
+    const model = options.model ?? this.defaultModel;
+    const provider = options.provider ?? this.defaultProvider;
+
+    await this.record(mission.id, 'assigned', 'boss', `Assigned mission to Hermes via ${command}.`, {
+      runner: 'hermes',
+      assetId,
+      command,
+      model,
+      provider,
+      timeoutSeconds,
+    });
+    await this.missions.updateMission(mission.id, {
+      stage: 'executing',
+      status: 'active',
+      progress: Math.max(mission.progress, 20),
+      risk: mission.risk,
+      ownerNeeded: false,
+      currentAssignee: assetId,
+      assetIds: includeAsset(mission.assetIds, assetId),
+      nextAction: 'Hermes is running one one-shot turn.',
+    });
+
+    const prompt = options.message ?? buildWorkerPrompt(mission);
+    await this.record(mission.id, 'progress', assetId, 'Hermes one-shot turn started.', {
+      runner: 'hermes',
+      model,
+      provider,
+      timeoutSeconds,
+    });
+
+    const args = buildHermesArgs(prompt, { ...options, model, provider });
+
+    try {
+      const execution = await runCommand(command, args, (timeoutSeconds + 10) * 1000);
+      const text = cleanCommandOutput(execution.stdout);
+      const summary = text
+        ? `Hermes completed: ${truncate(text, 500)}`
+        : 'Hermes completed without textual output.';
+
+      await this.record(mission.id, 'progress', assetId, summary, {
+        runner: 'hermes',
+        stdout: truncate(execution.stdout, 4000),
+        stderr: truncate(execution.stderr, 4000),
+      });
+      await this.missions.updateMission(mission.id, {
+        stage: 'completed',
+        status: 'completed',
+        progress: 100,
+        risk: 'low',
+        ownerNeeded: false,
+        currentAssignee: assetId,
+        summary,
+        nextAction: 'Generate report and judge the mission.',
+        completedAt: new Date(),
+      });
+      await this.record(mission.id, 'completed', 'boss', summary, { runner: 'hermes', assetId, model, provider });
+
+      return {
+        missionId: mission.id,
+        runner: 'hermes',
+        assetId,
+        status: 'completed',
+        escalatedToOwner: false,
+        summary,
+      };
+    } catch (err) {
+      return this.handleFailure(mission, assetId, command, args, err);
+    }
+  }
+
+  private async handleFailure(
+    mission: Mission,
+    assetId: string,
+    command: string,
+    args: string[],
+    err: unknown,
+  ): Promise<MissionRunResult> {
+    const failure = commandFailureToText(err);
+    const category = classifyRunnerFailure(failure);
+    const escalatedToOwner = category === 'money' || category === 'permission' || category === 'destructive';
+    const status = escalatedToOwner ? 'waiting_owner' : 'blocked';
+    const summary = `Hermes runner failed: ${truncate(failure, 500)}`;
+
+    await this.record(mission.id, escalatedToOwner ? 'resource_escalation' : 'blocked', assetId, summary, {
+      runner: 'hermes',
+      category,
+      command,
+      args: redactArgs(args),
+    });
+    await this.missions.updateMission(mission.id, {
+      stage: 'executing',
+      status,
+      progress: Math.max(mission.progress, 20),
+      risk: 'high',
+      ownerNeeded: escalatedToOwner,
+      currentAssignee: assetId,
+      summary,
+      nextAction: escalatedToOwner
+        ? 'Owner action is required before Hermes can continue.'
+        : 'Check Hermes auth/model compatibility or rerun with --runner mock while Hermes is repaired.',
+    });
+
+    return {
+      missionId: mission.id,
+      runner: 'hermes',
+      assetId,
+      status,
+      escalatedToOwner,
+      summary,
+    };
+  }
+
+  private async record(
+    missionId: string,
+    type: MissionEventType,
+    actor: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.missions.addEvent({ missionId, type, actor, content, metadata });
+  }
+}
+
 function defaultScenarioQuestion(scenario: MockRunScenario): string | undefined {
   if (scenario === 'happy') {
     return undefined;
@@ -453,7 +731,15 @@ function defaultScenarioQuestion(scenario: MockRunScenario): string | undefined 
   return 'Should I add tests before continuing?';
 }
 
+function includeAsset(assetIds: string[], assetId: string): string[] {
+  return assetIds.includes(assetId) ? assetIds : [...assetIds, assetId];
+}
+
 function buildOpenClawPrompt(mission: Mission): string {
+  return buildWorkerPrompt(mission);
+}
+
+function buildWorkerPrompt(mission: Mission): string {
   return [
     'You are a worker agent managed by Agent Boss.',
     `Mission ID: ${mission.id}`,
@@ -500,6 +786,30 @@ function buildCodexArgs(prompt: string, options: MissionRunOptions): string[] {
     args.push('--profile', options.profile);
   }
   args.push('-C', process.cwd(), prompt);
+  return args;
+}
+
+function buildClaudeArgs(prompt: string, options: MissionRunOptions): string[] {
+  const args = ['-p', '--output-format', 'json', '--no-session-persistence'];
+  if (options.model) {
+    args.push('--model', options.model);
+  }
+  if (options.permissionMode) {
+    args.push('--permission-mode', options.permissionMode);
+  }
+  args.push(prompt);
+  return args;
+}
+
+function buildHermesArgs(prompt: string, options: MissionRunOptions): string[] {
+  const args: string[] = [];
+  if (options.model) {
+    args.push('--model', options.model);
+  }
+  if (options.provider) {
+    args.push('--provider', options.provider);
+  }
+  args.push('--oneshot', prompt);
   return args;
 }
 
@@ -554,6 +864,20 @@ function parseCodexResponse(stdout: string): { text: string; parsed?: unknown } 
   }
 
   return { text: finalText || cleanCommandOutput(stdout), parsed: events };
+}
+
+function parseClaudeResponse(stdout: string): { text: string; parsed?: unknown } {
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    return { text: '' };
+  }
+
+  const json = parseLastJson(trimmed);
+  if (!json) {
+    return { text: cleanCommandOutput(stdout) };
+  }
+
+  return { text: pickText(json) ?? JSON.stringify(json), parsed: json };
 }
 
 function parseLastJson(value: string): unknown | undefined {
@@ -668,6 +992,10 @@ function redactArgs(args: string[]): string[] {
   const redacted: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     if (args[0] === 'exec' && index === args.length - 1) {
+      redacted.push('[mission prompt redacted]');
+      continue;
+    }
+    if ((args[0] === '-p' || args.includes('--oneshot')) && index === args.length - 1) {
       redacted.push('[mission prompt redacted]');
       continue;
     }

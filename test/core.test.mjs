@@ -121,6 +121,28 @@ test('MockMissionRunner completes a mission and records supervisor decisions', a
   }
 });
 
+test('MissionStore reserves unique mission ids across concurrent app contexts', async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-concurrent-missions-'));
+  const dbPath = path.join(cwd, 'shared.sqlite');
+  const apps = [];
+
+  try {
+    for (let index = 0; index < 4; index += 1) {
+      apps.push(await createApp({ cwd, dbPath }));
+    }
+
+    const missions = await Promise.all(
+      apps.map((app, index) => app.missions.createMission(`Concurrent mission ${index + 1}`, ['codex'])),
+    );
+    const ids = missions.map((mission) => mission.id);
+
+    assert.equal(new Set(ids).size, missions.length);
+    assert.deepEqual(ids.sort(), ['m-001', 'm-002', 'm-003', 'm-004']);
+  } finally {
+    await Promise.all(apps.map((app) => app.db.close()));
+  }
+});
+
 test('OpenClawRunner extracts text from payload responses', async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-openclaw-payload-'));
   const fakeOpenClaw = path.join(cwd, 'fake-openclaw');
@@ -207,6 +229,62 @@ test('CodexRunner extracts text from JSONL exec responses', async () => {
     assert.equal(result.status, 'completed');
     assert.match(result.summary, /codex payload ok/);
     assert.doesNotMatch(finalMission.summary, /thread.started/);
+  } finally {
+    await app.db.close();
+  }
+});
+
+test('ClaudeRunner extracts result text from JSON output', async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-claude-core-'));
+  const fakeClaude = path.join(cwd, 'fake-claude');
+  writeFileSync(
+    fakeClaude,
+    [
+      '#!/bin/sh',
+      'echo \'{"type":"result","subtype":"success","is_error":false,"result":"claude payload ok","usage":{"input_tokens":1}}\'',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(fakeClaude, 0o755);
+
+  const app = await createApp({ cwd });
+  try {
+    const mission = await app.missions.createMission('Run Claude through print', ['claude-code']);
+    const result = await app.claudeRunner.run(mission, {
+      assetId: 'claude-code',
+      command: fakeClaude,
+      timeoutSeconds: 1,
+    });
+    const finalMission = await app.missions.getMission(mission.id);
+
+    assert.equal(result.status, 'completed');
+    assert.match(result.summary, /claude payload ok/);
+    assert.doesNotMatch(finalMission.summary, /input_tokens/);
+  } finally {
+    await app.db.close();
+  }
+});
+
+test('HermesRunner records one-shot text output', async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-hermes-core-'));
+  const fakeHermes = path.join(cwd, 'fake-hermes');
+  writeFileSync(fakeHermes, ['#!/bin/sh', 'echo "hermes payload ok"', ''].join('\n'));
+  chmodSync(fakeHermes, 0o755);
+
+  const app = await createApp({ cwd });
+  try {
+    const mission = await app.missions.createMission('Run Hermes through one-shot', ['codex']);
+    const result = await app.hermesRunner.run(mission, {
+      assetId: 'hermes',
+      command: fakeHermes,
+      timeoutSeconds: 1,
+    });
+    const finalMission = await app.missions.getMission(mission.id);
+
+    assert.equal(result.status, 'completed');
+    assert.match(result.summary, /hermes payload ok/);
+    assert.match(finalMission.summary, /Hermes completed/);
+    assert.deepEqual(finalMission.assetIds, ['codex', 'hermes']);
   } finally {
     await app.db.close();
   }

@@ -223,7 +223,7 @@ async function handleMission(app: AppContext, args: string[]): Promise<void> {
 
   if (action === 'run') {
     const id = parsed.positionals[0];
-    requireArg(id, 'Usage: agent-boss mission run <missionId> [--runner mock|openclaw|codex] [--asset codex]');
+    requireArg(id, 'Usage: agent-boss mission run <missionId> [--runner mock|openclaw|codex|claude|hermes] [--asset codex]');
     const assetId = readFlag(parsed, 'asset');
     if (assetId) {
       await requireAsset(app, assetId);
@@ -553,6 +553,12 @@ async function runMission(
   if (runner === 'codex') {
     return app.codexRunner.run(mission, options);
   }
+  if (runner === 'claude') {
+    return app.claudeRunner.run(mission, options);
+  }
+  if (runner === 'hermes') {
+    return app.hermesRunner.run(mission, options);
+  }
 
   return app.runner.run(mission, options);
 }
@@ -814,14 +820,16 @@ function readMissionRunOptions(parsed: ParsedArgs, assetId?: string): MissionRun
     assetId,
     scenario: parseMockRunScenario(readFlag(parsed, 'scenario') ?? 'confirmation'),
     question: readFlag(parsed, 'question'),
-    command: readFlag(parsed, 'openclaw-bin') ?? readFlag(parsed, 'codex-bin'),
+    command: readFlag(parsed, 'openclaw-bin') ?? readFlag(parsed, 'codex-bin') ?? readFlag(parsed, 'claude-bin') ?? readFlag(parsed, 'hermes-bin'),
     agentId: readFlag(parsed, 'openclaw-agent'),
     timeoutSeconds: timeout ? parsePositiveInteger(timeout, 'timeout') : undefined,
     thinking: readFlag(parsed, 'thinking'),
     message: readFlag(parsed, 'message'),
-    model: readFlag(parsed, 'codex-model'),
+    model: readFlag(parsed, 'codex-model') ?? readFlag(parsed, 'claude-model') ?? readFlag(parsed, 'hermes-model'),
     sandbox: readFlag(parsed, 'codex-sandbox'),
     profile: readFlag(parsed, 'codex-profile'),
+    provider: readFlag(parsed, 'hermes-provider'),
+    permissionMode: readFlag(parsed, 'claude-permission-mode'),
   };
 }
 
@@ -876,7 +884,7 @@ function parseMissionStatus(value: string): MissionStatus {
 }
 
 function parseMissionRunnerKind(value: string): MissionRunnerKind {
-  return parseUnion(value, ['mock', 'openclaw', 'codex'], 'mission runner');
+  return parseUnion(value, ['mock', 'openclaw', 'codex', 'claude', 'hermes'], 'mission runner');
 }
 
 function parseMockRunScenario(value: string): MockRunScenario {
@@ -955,9 +963,11 @@ Usage:
   agent-boss mission watch <missionId> [--follow] [--interval 3] [--cycles 10]
   agent-boss mission log <missionId> [--limit 50]
   agent-boss mission update <missionId> --stage executing --progress 40 --next "review"
-  agent-boss mission run <missionId> [--runner mock|openclaw|codex] [--asset codex]
+  agent-boss mission run <missionId> [--runner mock|openclaw|codex|claude|hermes] [--asset codex]
   agent-boss mission run <missionId> --runner openclaw --asset openclaw --timeout 120
   agent-boss mission run <missionId> --runner codex --asset codex --codex-model gpt-5.4 --timeout 180
+  agent-boss mission run <missionId> --runner claude --asset claude-code --timeout 180
+  agent-boss mission run <missionId> --runner hermes --asset hermes --timeout 180
   agent-boss mission report <missionId>
   agent-boss mission event <missionId> "<content>" --type progress --actor codex
   agent-boss mission decide <missionId> "<question>"
@@ -976,7 +986,7 @@ Interactive commands:
   asset update <id> --status limited --notes "quota low"
   missions
   create "<goal>" [--assets codex,claude-code]
-  run <missionId> [--runner mock|openclaw|codex] [--asset codex] [--scenario happy|confirmation|permission|blocked]
+  run <missionId> [--runner mock|openclaw|codex|claude|hermes] [--asset codex] [--scenario happy|confirmation|permission|blocked]
   status <missionId>
   log <missionId>
   report <missionId>

@@ -212,6 +212,66 @@ test('CLI mission run can use a Codex command adapter', () => {
   assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /fake Codex completed the mission/);
 });
 
+test('CLI mission run can use a Claude Code command adapter', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-claude-'));
+  const fakeClaude = createFakeOpenClaw(cwd, [
+    '#!/bin/sh',
+    'case " $* " in *" --output-format json "*) ;; *) echo "missing json output" >&2; exit 2 ;; esac',
+    'echo \'{"type":"result","subtype":"success","is_error":false,"result":"fake Claude completed the mission"}\'',
+    '',
+  ].join('\n'));
+
+  runCli(cwd, ['assets', 'add', 'claude-code', '--type', 'agent', '--name', 'Claude Code']);
+  runCli(cwd, ['mission', 'create', 'delegate work to claude', '--assets', 'claude-code']);
+
+  const output = runCli(cwd, [
+    'mission',
+    'run',
+    'm-001',
+    '--runner',
+    'claude',
+    '--asset',
+    'claude-code',
+    '--claude-bin',
+    fakeClaude,
+    '--timeout',
+    '1',
+  ]);
+  assert.match(output, /Run completed: completed/);
+  assert.match(output, /Claude Code completed/);
+  assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /fake Claude completed the mission/);
+});
+
+test('CLI mission run can use a Hermes command adapter', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-hermes-'));
+  const fakeHermes = createFakeOpenClaw(cwd, [
+    '#!/bin/sh',
+    'case " $* " in *" --oneshot "*) ;; *) echo "missing oneshot" >&2; exit 2 ;; esac',
+    'echo "fake Hermes completed the mission"',
+    '',
+  ].join('\n'));
+
+  runCli(cwd, ['assets', 'add', 'hermes', '--type', 'agent', '--name', 'Hermes']);
+  runCli(cwd, ['mission', 'create', 'delegate work to hermes', '--assets', 'hermes']);
+
+  const output = runCli(cwd, [
+    'mission',
+    'run',
+    'm-001',
+    '--runner',
+    'hermes',
+    '--asset',
+    'hermes',
+    '--hermes-bin',
+    fakeHermes,
+    '--timeout',
+    '1',
+  ]);
+  assert.match(output, /Run completed: completed/);
+  assert.match(output, /Hermes completed/);
+  assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /fake Hermes completed the mission/);
+});
+
 test('Interactive shell can run demo and list missions', () => {
   const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-interactive-'));
 

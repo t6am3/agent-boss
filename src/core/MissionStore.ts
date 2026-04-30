@@ -228,12 +228,45 @@ export class MissionStore {
   }
 
   private async nextMissionId(): Promise<string> {
+    let inTransaction = false;
+    try {
+      await this.db.run('BEGIN IMMEDIATE');
+      inTransaction = true;
+
+      const row = await this.db.get<{ value: number }>('SELECT value FROM counters WHERE name = ?', ['mission']);
+      const next = row ? row.value + 1 : (await this.maxMissionNumber()) + 1;
+      await this.db.run(
+        `
+        INSERT INTO counters (name, value)
+        VALUES (?, ?)
+        ON CONFLICT(name) DO UPDATE SET value = excluded.value
+        `,
+        ['mission', next],
+      );
+      await this.db.run('COMMIT');
+      return missionIdFromNumber(next);
+    } catch (err) {
+      if (inTransaction) {
+        await this.rollbackQuietly();
+      }
+      throw err;
+    }
+  }
+
+  private async maxMissionNumber(): Promise<number> {
     const rows = await this.db.all<{ id: string }>("SELECT id FROM missions WHERE id LIKE 'm-%'");
-    const max = rows.reduce((highest, row) => {
+    return rows.reduce((highest, row) => {
       const match = /^m-(\d+)$/.exec(row.id);
       return match ? Math.max(highest, Number(match[1])) : highest;
     }, 0);
-    return missionIdFromNumber(max + 1);
+  }
+
+  private async rollbackQuietly(): Promise<void> {
+    try {
+      await this.db.run('ROLLBACK');
+    } catch {
+      // If SQLite already closed the transaction after a failed BEGIN/COMMIT, there is nothing to clean up.
+    }
   }
 }
 

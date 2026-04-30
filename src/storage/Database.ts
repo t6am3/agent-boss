@@ -47,6 +47,7 @@ export class Database {
   }
 
   private async initialize(): Promise<void> {
+    await this.run('PRAGMA busy_timeout = 5000');
     await this.run('PRAGMA foreign_keys = ON');
 
     await this.run(`
@@ -105,6 +106,13 @@ export class Database {
     `);
 
     await this.run(`
+      CREATE TABLE IF NOT EXISTS counters (
+        name TEXT PRIMARY KEY,
+        value INTEGER NOT NULL
+      )
+    `);
+
+    await this.run(`
       CREATE TABLE IF NOT EXISTS supervisor_decisions (
         id TEXT PRIMARY KEY,
         mission_id TEXT NOT NULL REFERENCES missions(id),
@@ -134,6 +142,10 @@ export class Database {
     await this.run(
       'INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
       [1, 'initial mission-first schema', Date.now()],
+    );
+    await this.run(
+      'INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
+      [2, 'durable counters for concurrent mission ids', Date.now()],
     );
   }
 }
