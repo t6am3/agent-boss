@@ -180,6 +180,38 @@ test('CLI mission run can use an OpenClaw command adapter', () => {
   assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /fake OpenClaw completed the mission/);
 });
 
+test('CLI mission run can use a Codex command adapter', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-codex-'));
+  const fakeCodex = createFakeOpenClaw(cwd, [
+    '#!/bin/sh',
+    'case " $* " in *" -m gpt-5.4 "*) ;; *) echo "missing default model" >&2; exit 2 ;; esac',
+    'echo \'{"type":"thread.started","thread_id":"t-1"}\'',
+    'echo \'{"type":"item.completed","item":{"type":"agent_message","text":"fake Codex completed the mission"}}\'',
+    'echo \'{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\'',
+    '',
+  ].join('\n'));
+
+  runCli(cwd, ['assets', 'add', 'codex', '--type', 'agent', '--name', 'Codex']);
+  runCli(cwd, ['mission', 'create', 'delegate work to codex', '--assets', 'codex']);
+
+  const output = runCli(cwd, [
+    'mission',
+    'run',
+    'm-001',
+    '--runner',
+    'codex',
+    '--asset',
+    'codex',
+    '--codex-bin',
+    fakeCodex,
+    '--timeout',
+    '1',
+  ]);
+  assert.match(output, /Run completed: completed/);
+  assert.match(output, /Codex completed/);
+  assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /fake Codex completed the mission/);
+});
+
 test('Interactive shell can run demo and list missions', () => {
   const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-interactive-'));
 

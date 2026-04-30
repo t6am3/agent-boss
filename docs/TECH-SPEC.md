@@ -566,12 +566,15 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 
 ### Phase 6：全新接入真实 Agent
 
-- 状态：MockRunner 已完成；OpenClaw CLI runner 已完成基础版；Codex / Claude 待接入。
+- 状态：MockRunner 已完成；OpenClaw CLI runner 已完成基础版；Codex CLI runner 已完成基础版；Claude 待接入。
 - 支持 `mission run <id> --runner mock --asset codex`。
 - 支持 `mission run <id> --runner openclaw --asset openclaw --timeout 120`。
 - OpenClaw 默认使用 `AGENT_BOSS_OPENCLAW_AGENT`，未设置时使用 `Nobita`，也可以通过 `--openclaw-agent <id>` 覆盖。
+- 支持 `mission run <id> --runner codex --asset codex --timeout 180`。
+- Codex 默认使用 `AGENT_BOSS_CODEX_MODEL`，未设置时使用 `gpt-5.4`；也可以通过 `--codex-model <model>` 覆盖。
 - `MockMissionRunner` 自动写入 assigned、progress、confirmation_requested、decision、completed events。
 - `OpenClawRunner` 调用 `openclaw agent --json --message ...`，成功时写入 progress/completed，失败时写入 blocked 或 resource_escalation。
+- `CodexRunner` 调用 `codex exec --json --ephemeral`，解析 `item.completed` JSONL 作为结果，成功时写入 progress/completed，失败时写入 blocked 或 resource_escalation。
 - 权限/付费/破坏性问题通过 Supervisor 暂停并升级 Owner。
 - 为 Codex / Claude / OpenClaw 按 v0.4 `MissionRunner` 接口重写 adapter。
 - adapter 自动写入 MissionEvent：assigned、progress、blocked、completed、failed。

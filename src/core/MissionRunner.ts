@@ -3,7 +3,7 @@ import { Mission, MissionEventType, SupervisorDecision } from '../domain/types';
 import { MissionStore } from './MissionStore';
 import { Supervisor } from './Supervisor';
 
-export type MissionRunnerKind = 'mock' | 'openclaw';
+export type MissionRunnerKind = 'mock' | 'openclaw' | 'codex';
 export type MockRunScenario = 'happy' | 'confirmation' | 'permission' | 'blocked';
 export type MissionRunStatus = 'completed' | 'waiting_owner' | 'blocked';
 
@@ -16,6 +16,9 @@ export interface MissionRunOptions {
   timeoutSeconds?: number;
   thinking?: string;
   message?: string;
+  model?: string;
+  sandbox?: string;
+  profile?: string;
 }
 
 export interface MissionRunResult {
@@ -311,6 +314,132 @@ export class OpenClawRunner implements MissionRunner {
   }
 }
 
+export class CodexRunner implements MissionRunner {
+  constructor(
+    private readonly missions: MissionStore,
+    private readonly supervisor: Supervisor,
+    private readonly defaultCommand = process.env.AGENT_BOSS_CODEX_BIN ?? 'codex',
+    private readonly defaultModel = process.env.AGENT_BOSS_CODEX_MODEL ?? 'gpt-5.4',
+    private readonly defaultSandbox = process.env.AGENT_BOSS_CODEX_SANDBOX ?? 'workspace-write',
+  ) {}
+
+  async run(mission: Mission, options: MissionRunOptions = {}): Promise<MissionRunResult> {
+    const assetId = options.assetId ?? mission.currentAssignee ?? 'codex';
+    const command = options.command ?? this.defaultCommand;
+    const timeoutSeconds = options.timeoutSeconds ?? 180;
+    const model = options.model ?? this.defaultModel;
+    const sandbox = options.sandbox ?? this.defaultSandbox;
+
+    await this.record(mission.id, 'assigned', 'boss', `Assigned mission to Codex via ${command}.`, {
+      runner: 'codex',
+      assetId,
+      command,
+      model,
+      sandbox,
+      timeoutSeconds,
+    });
+    await this.missions.updateMission(mission.id, {
+      stage: 'executing',
+      status: 'active',
+      progress: Math.max(mission.progress, 20),
+      risk: mission.risk,
+      ownerNeeded: false,
+      currentAssignee: assetId,
+      nextAction: 'Codex is running one exec turn.',
+    });
+
+    const prompt = options.message ?? buildCodexPrompt(mission);
+    await this.record(mission.id, 'progress', assetId, 'Codex exec turn started.', {
+      runner: 'codex',
+      model,
+      sandbox,
+      timeoutSeconds,
+    });
+
+    const args = buildCodexArgs(prompt, { ...options, model, sandbox });
+
+    try {
+      const execution = await runCommand(command, args, (timeoutSeconds + 10) * 1000);
+      const response = parseCodexResponse(execution.stdout);
+      const summary = response.text
+        ? `Codex completed: ${truncate(response.text, 500)}`
+        : 'Codex completed without textual output.';
+
+      await this.record(mission.id, 'progress', assetId, summary, {
+        runner: 'codex',
+        stdout: truncate(execution.stdout, 4000),
+        stderr: truncate(execution.stderr, 4000),
+        parsed: response.parsed,
+      });
+      await this.missions.updateMission(mission.id, {
+        stage: 'completed',
+        status: 'completed',
+        progress: 100,
+        risk: 'low',
+        ownerNeeded: false,
+        currentAssignee: assetId,
+        summary,
+        nextAction: 'Generate report and judge the mission.',
+        completedAt: new Date(),
+      });
+      await this.record(mission.id, 'completed', 'boss', summary, { runner: 'codex', assetId, model });
+
+      return {
+        missionId: mission.id,
+        runner: 'codex',
+        assetId,
+        status: 'completed',
+        escalatedToOwner: false,
+        summary,
+      };
+    } catch (err) {
+      const failure = commandFailureToText(err);
+      const category = classifyRunnerFailure(failure);
+      const escalatedToOwner = category === 'money' || category === 'permission' || category === 'destructive';
+      const status = escalatedToOwner ? 'waiting_owner' : 'blocked';
+      const summary = `Codex runner failed: ${truncate(failure, 500)}`;
+
+      await this.record(mission.id, escalatedToOwner ? 'resource_escalation' : 'blocked', assetId, summary, {
+        runner: 'codex',
+        category,
+        command,
+        args: redactArgs(args),
+      });
+      await this.missions.updateMission(mission.id, {
+        stage: 'executing',
+        status,
+        progress: Math.max(mission.progress, 20),
+        risk: 'high',
+        ownerNeeded: escalatedToOwner,
+        currentAssignee: assetId,
+        summary,
+        nextAction: escalatedToOwner
+          ? 'Owner action is required before Codex can continue.'
+          : 'Check Codex CLI auth/model compatibility or rerun with --runner mock while Codex is repaired.',
+      });
+
+      return {
+        missionId: mission.id,
+        runner: 'codex',
+        assetId,
+        status,
+        escalatedToOwner,
+        summary,
+      };
+    }
+  }
+
+  private async record(
+    missionId: string,
+    type: MissionEventType,
+    actor: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.missions.addEvent({ missionId, type, actor, content, metadata });
+  }
+}
+
 function defaultScenarioQuestion(scenario: MockRunScenario): string | undefined {
   if (scenario === 'happy') {
     return undefined;
@@ -347,6 +476,33 @@ function buildOpenClawArgs(prompt: string, options: MissionRunOptions): string[]
   return args;
 }
 
+function buildCodexPrompt(mission: Mission): string {
+  return [
+    'You are a worker agent managed by Agent Boss.',
+    `Mission ID: ${mission.id}`,
+    `Goal: ${mission.goal}`,
+    '',
+    'Return a concise result for the Boss.',
+    'If you are blocked by money, login, permission, destructive actions, or external delivery, say so explicitly.',
+    'For reversible implementation details, make the safest reasonable choice and continue.',
+  ].join('\n');
+}
+
+function buildCodexArgs(prompt: string, options: MissionRunOptions): string[] {
+  const args = ['exec', '--json', '--ephemeral'];
+  if (options.model) {
+    args.push('-m', options.model);
+  }
+  if (options.sandbox) {
+    args.push('--sandbox', options.sandbox);
+  }
+  if (options.profile) {
+    args.push('--profile', options.profile);
+  }
+  args.push('-C', process.cwd(), prompt);
+  return args;
+}
+
 function runCommand(command: string, args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile(command, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 5 }, (error, stdout, stderr) => {
@@ -372,6 +528,32 @@ function parseOpenClawResponse(stdout: string): { text: string; parsed?: unknown
 
   const text = pickText(json) ?? JSON.stringify(json);
   return { text, parsed: json };
+}
+
+function parseCodexResponse(stdout: string): { text: string; parsed?: unknown } {
+  const events: unknown[] = [];
+  let finalText = '';
+
+  for (const line of stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.startsWith('{')) {
+      continue;
+    }
+    try {
+      const event = JSON.parse(trimmed);
+      events.push(event);
+      const record = event as Record<string, unknown>;
+      if (record.type === 'item.completed') {
+        finalText = pickText(record.item) ?? finalText;
+      } else if (record.type === 'error' && typeof record.message === 'string') {
+        finalText = record.message;
+      }
+    } catch {
+      // Codex can interleave warnings with JSONL events.
+    }
+  }
+
+  return { text: finalText || cleanCommandOutput(stdout), parsed: events };
 }
 
 function parseLastJson(value: string): unknown | undefined {
@@ -485,6 +667,10 @@ function classifyRunnerFailure(failure: string): 'normal' | 'money' | 'permissio
 function redactArgs(args: string[]): string[] {
   const redacted: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
+    if (args[0] === 'exec' && index === args.length - 1) {
+      redacted.push('[mission prompt redacted]');
+      continue;
+    }
     redacted.push(args[index]);
     if (args[index] === '--message' && index + 1 < args.length) {
       redacted.push('[mission prompt redacted]');

@@ -178,3 +178,36 @@ test('OpenClawRunner records a blocker when the command fails', async () => {
     await app.db.close();
   }
 });
+
+test('CodexRunner extracts text from JSONL exec responses', async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-codex-core-'));
+  const fakeCodex = path.join(cwd, 'fake-codex');
+  writeFileSync(
+    fakeCodex,
+    [
+      '#!/bin/sh',
+      'echo \'{"type":"thread.started","thread_id":"t-1"}\'',
+      'echo \'{"type":"item.completed","item":{"id":"item-1","type":"agent_message","text":"codex payload ok"}}\'',
+      'echo \'{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\'',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(fakeCodex, 0o755);
+
+  const app = await createApp({ cwd });
+  try {
+    const mission = await app.missions.createMission('Run Codex through exec', ['codex']);
+    const result = await app.codexRunner.run(mission, {
+      assetId: 'codex',
+      command: fakeCodex,
+      timeoutSeconds: 1,
+    });
+    const finalMission = await app.missions.getMission(mission.id);
+
+    assert.equal(result.status, 'completed');
+    assert.match(result.summary, /codex payload ok/);
+    assert.doesNotMatch(finalMission.summary, /thread.started/);
+  } finally {
+    await app.db.close();
+  }
+});
