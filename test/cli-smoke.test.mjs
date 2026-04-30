@@ -15,6 +15,14 @@ function runCli(cwd, args) {
   });
 }
 
+function runCliWithInput(cwd, args, input) {
+  return execFileSync(process.execPath, [cliPath, ...args], {
+    cwd,
+    encoding: 'utf8',
+    input,
+  });
+}
+
 test('CLI smoke: assets, mission, supervisor decision, report, judge', () => {
   const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-cli-'));
 
@@ -121,4 +129,26 @@ test('CLI supports an explicit database path', () => {
     /Asset added: local-codex/,
   );
   assert.match(runCli(cwd, ['--db', dbPath, 'assets', 'list']), /local-codex/);
+});
+
+test('CLI demo runs a full MVP mission loop', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-demo-'));
+
+  const output = runCli(cwd, ['demo']);
+  assert.match(output, /Demo mission created: m-001/);
+  assert.match(output, /Run completed: completed/);
+  assert.match(output, /Escalated to owner: no/);
+  assert.match(output, /Demo judged: A/);
+  assert.match(output, /MVP demo completed/);
+  assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /judged/);
+});
+
+test('Interactive shell can run demo and list missions', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-interactive-'));
+
+  const output = runCliWithInput(cwd, ['interactive'], 'demo\nmissions\nexit\n');
+  assert.match(output, /Agent Boss Interactive MVP/);
+  assert.match(output, /MVP demo completed/);
+  assert.match(output, /m-001/);
+  assert.match(output, /Bye/);
 });

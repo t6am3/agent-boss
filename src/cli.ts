@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { stdin as input, stdout as output } from 'node:process';
+import { createInterface } from 'node:readline/promises';
 import {
   AddAssetInput,
   AssetStatus,
@@ -65,6 +67,13 @@ async function main(): Promise<void> {
         break;
       case 'judge':
         await handleJudge(app, rest);
+        break;
+      case 'demo':
+        await handleDemo(app, rest);
+        break;
+      case 'interactive':
+      case 'tui':
+        await handleInteractive(app);
         break;
       default:
         throw new Error(`Unknown command: ${command}`);
@@ -325,6 +334,255 @@ async function handleJudge(app: AppContext, args: string[]): Promise<void> {
   console.log(`Evaluation recorded: ${evaluation.id}`);
 }
 
+async function handleDemo(app: AppContext, args: string[]): Promise<void> {
+  const parsed = parseArgs(args);
+  await ensureDemoAssets(app);
+
+  const goal = readFlag(parsed, 'goal') ?? 'Demo MVP: Agent Boss runs a mission without noisy owner confirmations';
+  const scenario = parseMockRunScenario(readFlag(parsed, 'scenario') ?? 'confirmation');
+  const mission = await app.missions.createMission(goal, ['codex', 'claude-code']);
+  console.log(`Demo mission created: ${mission.id}`);
+
+  const result = await app.runner.run(mission, {
+    assetId: 'codex',
+    scenario,
+    question: readFlag(parsed, 'question'),
+  });
+  const current = await requireMission(app, mission.id);
+  console.log(`Run completed: ${result.status}`);
+  console.log(`Escalated to owner: ${result.escalatedToOwner ? 'yes' : 'no'}`);
+  console.log(app.reporter.renderStatusBoard(current, await app.missions.listRecentEvents(mission.id, 20)));
+
+  console.log('');
+  console.log('Report:');
+  console.log(app.reporter.renderReport(current, await app.missions.listEvents(mission.id)));
+  await app.missions.addEvent({
+    missionId: mission.id,
+    type: 'report',
+    actor: 'boss',
+    content: 'Demo report generated.',
+  });
+
+  const evaluation = await app.evaluations.judge({
+    missionId: mission.id,
+    score: result.escalatedToOwner ? 'B' : 'A',
+    comment: result.escalatedToOwner
+      ? 'Demo paused correctly for owner escalation.'
+      : 'Demo completed the MVP mission loop.',
+    assetIds: ['codex', 'claude-code'],
+    qualityNotes: 'mission run produced event log, status board, report, and judge record',
+    costNotes: 'mock runner has no external cost',
+    lessons: 'The MVP loop is ready before real adapters are attached.',
+  });
+  console.log(`Demo judged: ${evaluation.score}`);
+  console.log('MVP demo completed.');
+}
+
+async function handleInteractive(app: AppContext): Promise<void> {
+  const rl = createInterface({ input, output, terminal: input.isTTY });
+
+  console.log('Agent Boss Interactive MVP');
+  console.log('Type help for commands, demo for a full run, exit to quit.');
+
+  try {
+    if (input.isTTY) {
+      output.write('agent-boss> ');
+    }
+
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        if (input.isTTY) {
+          output.write('agent-boss> ');
+        }
+        continue;
+      }
+      if (trimmed === 'exit' || trimmed === 'quit') {
+        console.log('Bye.');
+        return;
+      }
+      try {
+        await handleInteractiveLine(app, trimmed);
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+      }
+      if (input.isTTY) {
+        output.write('agent-boss> ');
+      }
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+async function handleInteractiveLine(app: AppContext, line: string): Promise<void> {
+  const [command, ...rest] = splitCommandLine(line);
+
+  if (!command || command === 'help') {
+    showInteractiveHelp();
+    return;
+  }
+
+  if (command === 'demo') {
+    await handleDemo(app, rest);
+    return;
+  }
+
+  if (command === 'assets') {
+    console.log(app.reporter.renderAssets(await app.assets.listAssets()));
+    return;
+  }
+
+  if (command === 'asset') {
+    await handleInteractiveAsset(app, rest);
+    return;
+  }
+
+  if (command === 'missions') {
+    console.log(app.reporter.renderMissionList(await app.missions.listMissions()));
+    return;
+  }
+
+  if (command === 'create') {
+    const parsed = parseArgs(rest);
+    const goal = parsed.positionals.join(' ');
+    requireArg(goal, 'Usage: create "<goal>" [--assets codex,claude-code]');
+    const explicitAssets = splitCsv(readFlag(parsed, 'assets'));
+    const candidates = explicitAssets
+      ? await Promise.all(explicitAssets.map((assetId) => requireAsset(app, assetId)))
+      : await app.assets.findCandidates(goal);
+    const mission = await app.missions.createMission(goal, candidates.map((asset) => asset.id));
+    console.log(`Mission created: ${mission.id}`);
+    console.log(app.reporter.renderStatusBoard(mission, await app.missions.listRecentEvents(mission.id, 20)));
+    return;
+  }
+
+  if (command === 'run') {
+    const parsed = parseArgs(rest);
+    const id = parsed.positionals[0];
+    requireArg(id, 'Usage: run <missionId> [--asset codex] [--scenario confirmation]');
+    const assetId = readFlag(parsed, 'asset');
+    if (assetId) {
+      await requireAsset(app, assetId);
+    }
+    const mission = await requireMission(app, id);
+    const result = await app.runner.run(mission, {
+      assetId,
+      scenario: parseMockRunScenario(readFlag(parsed, 'scenario') ?? 'confirmation'),
+      question: readFlag(parsed, 'question'),
+    });
+    const current = await requireMission(app, id);
+    console.log(`Run completed: ${result.status}`);
+    console.log(app.reporter.renderStatusBoard(current, await app.missions.listRecentEvents(id, 20)));
+    return;
+  }
+
+  if (command === 'status') {
+    const id = rest[0];
+    requireArg(id, 'Usage: status <missionId>');
+    const mission = await requireMission(app, id);
+    console.log(app.reporter.renderStatusBoard(mission, await app.missions.listRecentEvents(id, 20)));
+    return;
+  }
+
+  if (command === 'log') {
+    const id = rest[0];
+    requireArg(id, 'Usage: log <missionId>');
+    await requireMission(app, id);
+    console.log(app.reporter.renderMissionLog(await app.missions.listEvents(id)));
+    return;
+  }
+
+  if (command === 'report') {
+    const id = rest[0];
+    requireArg(id, 'Usage: report <missionId>');
+    const mission = await requireMission(app, id);
+    console.log(app.reporter.renderReport(mission, await app.missions.listEvents(id)));
+    await app.missions.addEvent({
+      missionId: id,
+      type: 'report',
+      actor: 'boss',
+      content: 'Interactive report generated.',
+    });
+    return;
+  }
+
+  if (command === 'judge') {
+    await handleJudge(app, rest);
+    return;
+  }
+
+  throw new Error(`Unknown interactive command: ${command}`);
+}
+
+async function handleInteractiveAsset(app: AppContext, args: string[]): Promise<void> {
+  const [action, ...rest] = args;
+  const parsed = parseArgs(rest);
+
+  if (action === 'add') {
+    const id = parsed.positionals[0];
+    requireArg(id, 'Usage: asset add <id> --type agent --name "Codex"');
+    const input: AddAssetInput = {
+      id,
+      type: parseAssetType(readFlag(parsed, 'type') ?? 'agent'),
+      name: readFlag(parsed, 'name') ?? id,
+      provider: readFlag(parsed, 'provider'),
+      plan: readFlag(parsed, 'plan'),
+      scenes: splitCsv(readFlag(parsed, 'scenes')),
+      costMode: parseCostMode(readFlag(parsed, 'cost') ?? 'unknown'),
+      status: parseAssetStatus(readFlag(parsed, 'status') ?? 'ready'),
+      notes: readFlag(parsed, 'notes'),
+    };
+    const asset = await app.assets.addAsset(input);
+    console.log(`Asset added: ${asset.id}`);
+    return;
+  }
+
+  if (action === 'update') {
+    const id = parsed.positionals[0];
+    requireArg(id, 'Usage: asset update <id> [--status ready]');
+    const asset = await app.assets.updateAsset(id, readAssetPatch(parsed));
+    console.log(`Asset updated: ${asset.id}`);
+    return;
+  }
+
+  throw new Error('Usage: asset <add|update>');
+}
+
+async function ensureDemoAssets(app: AppContext): Promise<void> {
+  await upsertAsset(app, {
+    id: 'codex',
+    type: 'agent',
+    name: 'Codex',
+    plan: 'coding-plan',
+    scenes: ['code', 'refactor', 'mvp'],
+    costMode: 'subscription',
+    status: 'ready',
+    notes: 'Default demo worker asset.',
+  });
+  await upsertAsset(app, {
+    id: 'claude-code',
+    type: 'agent',
+    name: 'Claude Code',
+    plan: 'pro',
+    scenes: ['review', 'design'],
+    costMode: 'subscription',
+    status: 'ready',
+    notes: 'Default demo reviewer asset.',
+  });
+}
+
+async function upsertAsset(app: AppContext, input: AddAssetInput): Promise<void> {
+  const existing = await app.assets.getAsset(input.id);
+  if (!existing) {
+    await app.assets.addAsset(input);
+    return;
+  }
+
+  const { id, ...patch } = input;
+  await app.assets.updateAsset(id, patch);
+}
+
 async function updateMissionFromEvent(
   app: AppContext,
   missionId: string,
@@ -393,6 +651,62 @@ function parseArgs(args: string[]): ParsedArgs {
   }
 
   return { positionals, flags };
+}
+
+function splitCommandLine(line: string): string[] {
+  const args: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+
+  for (const char of line) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = '';
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (escaped) {
+    current += '\\';
+  }
+  if (quote) {
+    throw new Error('Unterminated quote in command.');
+  }
+  if (current) {
+    args.push(current);
+  }
+
+  return args;
 }
 
 function parseGlobalArgs(args: string[]): GlobalArgs {
@@ -597,6 +911,9 @@ Agent Boss v0.4 skeleton
 Usage:
   agent-boss [--db .agent-boss/dev.sqlite] <command>
 
+  agent-boss demo
+  agent-boss interactive
+
   agent-boss assets add <id> --type agent --name "Codex" --plan coding-plan --scenes code,refactor
   agent-boss assets update <id> --status limited --notes "quota low"
   agent-boss assets list
@@ -616,6 +933,24 @@ Usage:
   agent-boss mission complete <missionId> "<summary>"
 
   agent-boss judge <missionId> <A+|A|B+|B|C|D> "<comment>" --assets codex,claude-code
+`);
+}
+
+function showInteractiveHelp(): void {
+  console.log(`
+Interactive commands:
+  demo
+  assets
+  asset add <id> --type agent --name "Codex" --scenes code,review
+  asset update <id> --status limited --notes "quota low"
+  missions
+  create "<goal>" [--assets codex,claude-code]
+  run <missionId> [--asset codex] [--scenario happy|confirmation|permission|blocked]
+  status <missionId>
+  log <missionId>
+  report <missionId>
+  judge <missionId> <A+|A|B+|B|C|D> "<comment>" [--assets codex,claude-code]
+  exit
 `);
 }
 

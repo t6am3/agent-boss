@@ -50,6 +50,8 @@ v0.4 实现采用直接重写策略，当前状态如下：
 
 ```text
 CLI
+├── demo
+├── interactive / tui
 ├── assets add/update/list/show
 ├── mission create/list/status/watch/log/update/run/report/event/decide/complete
 └── judge
@@ -569,6 +571,12 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 - 权限/付费/破坏性问题通过 Supervisor 暂停并升级 Owner。
 - 为 Codex / Claude / OpenClaw 按 v0.4 `MissionRunner` 接口重写 adapter。
 - adapter 自动写入 MissionEvent：assigned、progress、blocked、completed、failed。
+
+### Phase 7：可跑 MVP 入口
+
+- 状态：已完成基础版。
+- `agent-boss demo` 一键创建 demo 资产、创建 Mission、运行 MockRunner、输出状态板、生成 report、写入 judge。
+- `agent-boss interactive` 提供交互式 shell，支持 demo、assets、missions、create、run、status、log、report、judge。
 
 ---
 
