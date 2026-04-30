@@ -972,13 +972,12 @@ Usage:
 function showInteractiveHelp(): void {
   console.log(`
 Interactive commands:
+  默认只做两件事：给目标、看进度
   直接说自然语言：帮我重构登录模块
-  用 runner 直接派发：用 hermes 帮我检查 README
   问进度：现在进展如何
   要汇报：给我汇报
-  看审计：审计 m-001
   演示：演示一下
-  资产：资产
+  需要细节时：审计 m-001
   仍兼容这些显式命令：
   demo
   assets

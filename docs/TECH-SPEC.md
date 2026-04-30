@@ -14,11 +14,12 @@
 
 先实现本地 CLI 版 AI 监工台，让用户可以：
 
-1. 登记 AI 资产：agent、model、plan、tool。
-2. 创建 Mission，而不是只发一次 query。
-3. 查看 Mission 状态板和随时汇报。
-4. 记录下层 agent 的进展、阻塞、确认请求和 Boss 代决策。
-5. 对 Mission 做 judge，沉淀资产表现和用户偏好。
+1. 进入 `agent-boss boss`，用自然语言只给目标、只问进度。
+2. 让 Boss 创建 Mission，而不是只发一次 query。
+3. 让 Boss 在自己的 workspace 里用文件系统、bash 和必要的浏览器观察推进任务。
+4. 默认折叠下层 agent 细节，只在 Owner 要“审计”时展开事件流。
+5. 记录下层 agent 的进展、阻塞、确认请求和 Boss 代决策。
+6. 对 Mission 做 judge，沉淀资产表现和用户偏好。
 
 ### 1.2 非目标
 
@@ -29,6 +30,7 @@ v0.1 不做：
 - 多 Boss 递归组织
 - 自动接管所有 Agent UI
 - 复杂 workflow DSL
+- 面向 Owner 的复杂工具面板
 - 企业权限系统
 
 ### 1.3 重写原则
@@ -51,12 +53,13 @@ v0.4 实现采用直接重写策略，当前状态如下：
 ```text
 CLI
 ├── demo
-├── interactive / tui
+├── boss / interactive / tui
 ├── assets add/update/list/show
 ├── mission create/list/status/watch/log/update/run/report/event/decide/complete
 └── judge
 
 Core
+├── BossAgent              # Owner 单线对话层：目标、进度、汇报、审计
 ├── AssetLedger            # AI 资产台账
 ├── MissionStore           # Mission + event log + persistence
 ├── Supervisor             # 代决策与升级规则
@@ -80,6 +83,8 @@ Storage
 
 - **Mission 是主对象**：所有资产使用、事件、决策、评价都围绕 Mission 记录。
 - **Event log 是血管**：状态、汇报、复盘都从 MissionEvent 汇总生成。
+- **Boss Direct Line 是主入口**：Owner 默认不操作工具，只给目标、看进度。
+- **基础能力优先**：Boss 的通用手脚是 workspace、filesystem、bash 和 browser observation；runner/asset 是内部调度细节。
 - **Supervisor 先规则化**：先用明确规则决定是否打扰用户，不引入不稳定智能判断。
 - **Reporter 面向老板**：默认展示结果、风险和下一步，折叠下层 agent 噪音。
 
@@ -566,24 +571,27 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 
 ### Phase 6：全新接入真实 Agent
 
-- 状态：MockRunner 已完成；OpenClaw CLI runner 已完成基础版；Codex CLI runner 已完成基础版；Claude 待接入。
+- 状态：MockRunner、OpenClaw CLI runner、Codex CLI runner、Claude Code runner、Hermes runner 均已完成基础版。
 - 支持 `mission run <id> --runner mock --asset codex`。
 - 支持 `mission run <id> --runner openclaw --asset openclaw --timeout 120`。
 - OpenClaw 默认使用 `AGENT_BOSS_OPENCLAW_AGENT`，未设置时使用 `Nobita`，也可以通过 `--openclaw-agent <id>` 覆盖。
 - 支持 `mission run <id> --runner codex --asset codex --timeout 180`。
 - Codex 默认使用 `AGENT_BOSS_CODEX_MODEL`，未设置时使用 `gpt-5.4`；也可以通过 `--codex-model <model>` 覆盖。
+- 支持 `mission run <id> --runner claude --asset claude-code --timeout 180`。
+- 支持 `mission run <id> --runner hermes --asset hermes --timeout 180`。
 - `MockMissionRunner` 自动写入 assigned、progress、confirmation_requested、decision、completed events。
 - `OpenClawRunner` 调用 `openclaw agent --json --message ...`，成功时写入 progress/completed，失败时写入 blocked 或 resource_escalation。
 - `CodexRunner` 调用 `codex exec --json --ephemeral`，解析 `item.completed` JSONL 作为结果，成功时写入 progress/completed，失败时写入 blocked 或 resource_escalation。
 - 权限/付费/破坏性问题通过 Supervisor 暂停并升级 Owner。
-- 为 Codex / Claude / OpenClaw 按 v0.4 `MissionRunner` 接口重写 adapter。
+- 为 Codex / Claude Code / Hermes / OpenClaw 按 v0.4 `MissionRunner` 接口重写 adapter。
 - adapter 自动写入 MissionEvent：assigned、progress、blocked、completed、failed。
 
 ### Phase 7：可跑 MVP 入口
 
 - 状态：已完成基础版。
 - `agent-boss demo` 一键创建 demo 资产、创建 Mission、运行 MockRunner、输出状态板、生成 report、写入 judge。
-- `agent-boss interactive` 提供交互式 shell，支持 demo、assets、missions、create、run、status、log、report、judge。
+- `agent-boss boss` / `agent-boss interactive` 提供 Boss Direct Line，支持自然语言目标、进度、汇报、审计和演示。
+- 传统 interactive 命令继续兼容 demo、assets、missions、create、run、status、log、report、judge，但不是主产品体验。
 
 ---
 

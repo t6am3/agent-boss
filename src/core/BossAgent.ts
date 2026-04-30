@@ -29,7 +29,11 @@ export class BossAgent {
     }
 
     if (isAssetRequest(line)) {
-      return this.renderAssets();
+      return this.renderInternalCapabilities();
+    }
+
+    if (isGoalRequest(line)) {
+      return this.createMissionFromNaturalGoal(line);
     }
 
     if (isAuditRequest(line)) {
@@ -76,23 +80,27 @@ export class BossAgent {
 
     return [
       'Boss 演示完成。',
-      `我创建了 ${mission.id}，派给 codex，拦截了“要不要加测试”这种低价值确认，并完成了评价沉淀。`,
+      `我创建了 ${mission.id}，自己推进执行，拦截了“要不要加测试”这种低价值确认，并完成了评价沉淀。`,
       '',
       await this.renderReport(mission.id),
       '',
-      `要看子 agent 审计细节，直接说：审计 ${mission.id}`,
+      `要看底层审计细节，直接说：审计 ${mission.id}`,
     ].join('\n');
   }
 
-  private async renderAssets(): Promise<string> {
+  private async renderInternalCapabilities(): Promise<string> {
     const assets = await this.app.assets.listAssets();
     return [
-      '这是我当前能管理的 AI 资产：',
-      this.app.reporter.renderAssets(assets),
+      '你一般不用关心这些。',
+      '',
+      '我的默认工作方式是：你给目标，我在自己的 workspace 里用文件系统、bash 和必要的浏览器观察来推进；需要时我再调用本机已接上的 agent。',
+      '',
+      '当前内部连接状态：',
+      assets.length > 0 ? this.app.reporter.renderAssets(assets) : '还没有登记 worker。',
       '',
       assets.length > 0
-        ? '你可以说：用 claude 帮我检查这个项目，或者：派给 hermes 跑一下。'
-        : '现在还没有登记资产。你可以先用外层 CLI 添加，或者让我跑演示。'
+        ? '这些只作为审计和调度依据，默认不会要求你选择。'
+        : '现在还没有登记 worker，但 Boss 仍然可以先创建 mission 和记录进度。'
     ].join('\n');
   }
 
@@ -104,11 +112,10 @@ export class BossAgent {
     }
 
     return [
-      'Boss Dashboard',
+      'Boss Progress',
       '',
-      this.app.reporter.renderMissionList(missions.slice(0, 8)),
-      '',
-      this.app.reporter.renderStatusBoard(mission, await this.app.missions.listRecentEvents(mission.id, 20)),
+      `当前任务：${mission.id}（共 ${missions.length} 个 mission）`,
+      renderOwnerProgress(mission, await this.app.missions.listRecentEvents(mission.id, 20)),
     ].join('\n');
   }
 
@@ -128,9 +135,9 @@ export class BossAgent {
     return [
       `Boss 汇报 ${mission.id}`,
       '',
-      this.app.reporter.renderReport(mission, events),
+      renderOwnerProgress(mission, events),
       '',
-      '我默认折叠子 agent 的执行噪音；要看完整过程，说：审计 ' + mission.id,
+      '我默认折叠执行细节；要看完整过程，说：审计 ' + mission.id,
     ].join('\n');
   }
 
@@ -146,7 +153,7 @@ export class BossAgent {
       '',
       this.app.reporter.renderMissionLog(events),
       '',
-      '这些是 Boss 和子 agent 的事件流：派发、进度、阻塞、决策、完成和评价都会在这里留痕。',
+      '这是底层事件流：派发、进度、阻塞、决策、完成和评价都会在这里留痕。默认不推给 Owner。',
     ].join('\n');
   }
 
@@ -190,8 +197,8 @@ export class BossAgent {
     return [
       `我已接单：${mission.id}`,
       `目标：${mission.goal}`,
-      `我初步安排的资产：${assetIds.length > 0 ? assetIds.join(', ') : '暂未匹配到 ready worker'}`,
-      `下一步：${mission.nextAction}`,
+      `当前进度：0% / planning`,
+      `下一步：我会组织执行资源并开始推进。`,
       '',
       '你可以继续说：开始执行，或问我：现在进展如何？',
     ].join('\n');
@@ -258,16 +265,66 @@ export class BossAgent {
 
   private async renderRunResult(result: MissionRunResult): Promise<string> {
     const mission = await this.requireMission(result.missionId);
+    const statusLine = result.status === 'completed'
+      ? '执行完成'
+      : result.status === 'waiting_owner'
+        ? '需要你介入'
+        : '执行受阻';
     return [
-      `执行结果：${result.status}`,
-      `Runner：${result.runner}`,
-      `Worker：${result.assetId}`,
-      `是否需要 Owner：${result.escalatedToOwner ? '需要' : '不需要'}`,
-      `摘要：${result.summary}`,
+      `状态：${statusLine}`,
+      `是否需要你：${result.escalatedToOwner ? '需要' : '不需要'}`,
+      `摘要：${toOwnerSummary(result.summary)}`,
       '',
-      this.app.reporter.renderStatusBoard(mission, await this.app.missions.listRecentEvents(mission.id, 20)),
+      renderOwnerProgress(mission, await this.app.missions.listRecentEvents(mission.id, 20)),
     ].join('\n');
   }
+}
+
+function renderOwnerProgress(mission: Mission, events: { type: string; content: string }[]): string {
+  const lastProgress = [...events].reverse().find((event) => event.type === 'progress');
+  const lastBlocker = [...events].reverse().find((event) =>
+    event.type === 'blocked' || event.type === 'resource_escalation',
+  );
+  const needOwner = mission.ownerNeeded ? '需要你介入' : '不需要你介入';
+  const status = mission.status === 'completed'
+    ? '已完成'
+    : mission.status === 'blocked'
+      ? '有阻塞'
+      : mission.status === 'waiting_owner'
+        ? '等你处理'
+        : '推进中';
+
+  return [
+    `目标：${mission.goal}`,
+    `状态：${status}，进度 ${mission.progress}%`,
+    `风险：${mission.risk}，${needOwner}`,
+    `最近进展：${lastProgress ? toOwnerSummary(lastProgress.content) : toOwnerSummary(mission.summary ?? '还没有新的执行进展。')}`,
+    `阻塞：${lastBlocker ? lastBlocker.content : '无'}`,
+    `下一步：${toOwnerNextAction(mission.nextAction)}`,
+  ].join('\n');
+}
+
+function toOwnerSummary(summary: string): string {
+  return summary
+    .replace(/^OpenClaw completed:\s*/i, '已完成：')
+    .replace(/^Codex completed:\s*/i, '已完成：')
+    .replace(/^Claude Code completed:\s*/i, '已完成：')
+    .replace(/^Hermes completed:\s*/i, '已完成：')
+    .replace(/^Mock runner completed mission with .+\.$/i, '任务已完成，过程已记录。')
+    .replace(/^Boss reviewed the result and accepted the mock output\.$/i, '我已验收当前结果。');
+}
+
+function toOwnerNextAction(nextAction?: string): string {
+  if (!nextAction) {
+    return '我会继续推进并在有风险时汇报。';
+  }
+  if (/Register or choose worker assets|Assign first pass/i.test(nextAction)) {
+    return '我会组织执行资源并开始推进。';
+  }
+  if (/Generate report and judge/i.test(nextAction)) {
+    return '我会整理结果并等待你的下一步指示。';
+  }
+  return nextAction;
 }
 
 function detectRunner(line: string): RunnerSelection | undefined {
@@ -340,7 +397,12 @@ function isDemoRequest(line: string): boolean {
 }
 
 function isAssetRequest(line: string): boolean {
-  return /^(assets?|资产|员工|workers?|agents?|连接了谁|能用谁|有哪些 agent|有哪些模型)$/i.test(line);
+  return /^(assets?|资产|员工|workers?|agents?|连接了谁|能用谁|有哪些 agent|有哪些模型|有什么工具|有哪些工具|工具|能力)$/i.test(line);
+}
+
+function isGoalRequest(line: string): boolean {
+  return /^(请|麻烦)?(帮我|我要|我想|给我|创建一个?任务|新建一个?任务|开一个?任务)/i.test(line)
+    && /(做|写|重构|检查|实现|修复|整理|接入|设计|跑|验证|测试|分析|调查|研究|生成|改|加|删|迁移|优化)/i.test(line);
 }
 
 function isAuditRequest(line: string): boolean {
@@ -367,16 +429,16 @@ function renderHelp(): string {
   return [
     '你现在是在和 Agent Boss 单线对话。',
     '',
-    '你可以直接说：',
+    '默认模式：你给目标，只看进度；我管理过程和细节。',
+    '',
+    '直接说：',
     '- 帮我重构登录模块',
-    '- 用 hermes 帮我检查 README',
     '- 现在进展如何？',
     '- 给我汇报',
-    '- 审计 m-001',
     '- 演示一下',
-    '- 资产',
     '',
-    '我的默认行为：我会折叠子 agent 噪音，只把目标、进度、阻塞、风险、下一步和需要你介入的事汇报给你。',
+    '需要看细节时再说：审计 m-001。',
+    '内部能力保持简单：workspace、文件系统、bash，必要时看浏览器或调用本机 agent。其他都不应该变成你要操作的工具面板。',
   ].join('\n');
 }
 

@@ -300,10 +300,23 @@ test('Boss direct line accepts natural language status, report, and audit', () =
 
   assert.match(output, /Agent Boss Direct Line/);
   assert.match(output, /我已接单：m-001/);
-  assert.match(output, /Boss Dashboard/);
+  assert.match(output, /Boss Progress/);
   assert.match(output, /Boss 汇报 m-001/);
   assert.match(output, /审计 m-001/);
   assert.match(output, /自然语言交互测试任务/);
+});
+
+test('Boss direct line treats goal text containing progress words as a new mission', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-goal-intent-'));
+
+  const output = runCliWithInput(
+    cwd,
+    ['boss'],
+    '帮我做一个只看进度的产品方向 smoke\nexit\n',
+  );
+
+  assert.match(output, /我已接单：m-001/);
+  assert.match(output, /只看进度的产品方向 smoke/);
 });
 
 test('Boss direct line can create and run from one natural language message', () => {
@@ -316,7 +329,7 @@ test('Boss direct line can create and run from one natural language message', ()
   );
 
   assert.match(output, /我已接单并开始执行：m-001/);
-  assert.match(output, /执行结果：completed/);
-  assert.match(output, /Runner：mock/);
-  assert.match(output, /Mission Status Board - m-001/);
+  assert.match(output, /状态：执行完成/);
+  assert.match(output, /是否需要你：不需要/);
+  assert.match(output, /目标：跑一个自然语言自动派发任务/);
 });
