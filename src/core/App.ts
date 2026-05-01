@@ -2,6 +2,7 @@ import { AssetLedger } from './AssetLedger';
 import { EvaluationEngine } from './EvaluationEngine';
 import { MissionStore } from './MissionStore';
 import { ClaudeRunner, CodexRunner, HermesRunner, MockMissionRunner, OpenClawRunner } from './MissionRunner';
+import { BossWorkspaceRunner } from './BossWorkspaceRunner';
 import { Reporter } from './Reporter';
 import { SettingsStore } from './SettingsStore';
 import { Supervisor } from './Supervisor';
@@ -14,6 +15,7 @@ export interface AppContext {
   missions: MissionStore;
   supervisor: Supervisor;
   runner: MockMissionRunner;
+  workspaceRunner: BossWorkspaceRunner;
   openClawRunner: OpenClawRunner;
   codexRunner: CodexRunner;
   claudeRunner: ClaudeRunner;
@@ -40,6 +42,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<AppCont
     missions,
     supervisor,
     runner: new MockMissionRunner(missions, supervisor),
+    workspaceRunner: new BossWorkspaceRunner(missions, options.cwd ?? process.cwd()),
     openClawRunner: new OpenClawRunner(missions, supervisor),
     codexRunner: new CodexRunner(missions, supervisor),
     claudeRunner: new ClaudeRunner(missions, supervisor),

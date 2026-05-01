@@ -13,7 +13,7 @@ export type BossIntentName =
   | 'run'
   | 'create';
 
-export type BossIntentRunner = 'mock' | 'openclaw' | 'codex' | 'claude' | 'hermes';
+export type BossIntentRunner = 'mock' | 'workspace' | 'openclaw' | 'codex' | 'claude' | 'hermes';
 
 export interface BossIntent {
   intent: BossIntentName;
@@ -50,7 +50,7 @@ function buildIntentPrompt(input: string, missions: Mission[]): string {
     'Return JSON only. No markdown. No explanation.',
     '',
     'Allowed JSON shape:',
-    '{"intent":"help|greeting|demo|capabilities|audit|report|progress|run|create","goal":"optional","missionId":"optional m-001","runner":"optional mock|openclaw|codex|claude|hermes","autoRun":true}',
+    '{"intent":"help|greeting|demo|capabilities|audit|report|progress|run|create","goal":"optional","missionId":"optional m-001","runner":"optional workspace|mock|openclaw|codex|claude|hermes","autoRun":true}',
     '',
     'Rules:',
     '- If the owner gives a goal, use intent=create even if the goal contains words like progress/status/report.',
@@ -60,6 +60,7 @@ function buildIntentPrompt(input: string, missions: Mission[]): string {
     '- If the owner asks what tools/capabilities/models are available, use capabilities.',
     '- If the owner says demo or 演示, use demo.',
     '- If the owner explicitly says run/start/execute an existing mission, use run.',
+    '- If the owner asks Boss to do the work itself, use runner=workspace.',
     '- Owner should not be asked to choose tools unless they explicitly named one.',
     '',
     `Known missions: ${JSON.stringify(missionSummary)}`,
@@ -226,5 +227,5 @@ function isBossIntentName(value: unknown): value is BossIntentName {
 
 function isBossIntentRunner(value: unknown): value is BossIntentRunner {
   return typeof value === 'string'
-    && ['mock', 'openclaw', 'codex', 'claude', 'hermes'].includes(value);
+    && ['mock', 'workspace', 'openclaw', 'codex', 'claude', 'hermes'].includes(value);
 }

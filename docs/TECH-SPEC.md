@@ -62,6 +62,7 @@ CLI
 Core
 ├── BossAgent              # Owner 单线对话层：目标、进度、汇报、审计
 ├── BossBrain              # 可选模型驱动意图识别，未配置时 rule fallback
+├── BossWorkspaceRunner    # Mission workspace + bash audit execution
 ├── SettingsStore          # Boss brain provider/model/command 等配置
 ├── AssetLedger            # AI 资产台账
 ├── MissionStore           # Mission + event log + persistence
@@ -72,6 +73,7 @@ Core
 
 Adapters
 ├── MockMissionRunner      # P0.5 本地执行闭环验证
+├── BossWorkspaceRunner    # Boss 自己的 workspace/bash 基础执行
 ├── OpenClawRunner         # 通过 OpenClaw CLI agent turn 执行
 ├── CodexAdapter
 ├── ClaudeCodeAdapter
@@ -603,6 +605,8 @@ agent-boss judge m-001 A "安全边界处理好，成本可以接受" --assets c
 - `agent-boss boss` / `agent-boss interactive` 提供 Boss Direct Line，支持自然语言目标、进度、汇报、审计和演示。
 - `agent-boss boss config show|model|clear` 支持 Boss brain model 配置。
 - Boss brain 支持 `rule` fallback，以及通过本机 `codex`、`claude`、`hermes` 做意图识别。
+- `mission run <id> --runner workspace` 支持 Boss 自己创建 `.agent-boss/workspaces/<missionId>/`，运行安全 bash 检查，并把 stdout/stderr 写入 `artifacts/`。
+- 自然语言 `开始执行` 在未指定 worker 时默认走 workspace loop，而不是要求 Owner 选择工具。
 - 传统 interactive 命令继续兼容 demo、assets、missions、create、run、status、log、report、judge，但不是主产品体验。
 
 ---

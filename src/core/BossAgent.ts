@@ -261,18 +261,16 @@ export class BossAgent {
       return explicit;
     }
 
-    const preferredAsset = mission.currentAssignee ?? mission.assetIds[0];
-    if (preferredAsset) {
-      return runnerForAsset(preferredAsset);
-    }
-
-    return { runner: 'mock', assetId: 'mock-worker' };
+    return { runner: 'workspace', assetId: 'boss-workspace' };
   }
 
   private async runMission(mission: Mission, selection: RunnerSelection): Promise<MissionRunResult> {
     const options = { assetId: selection.assetId };
     if (selection.runner === 'openclaw') {
       return this.app.openClawRunner.run(mission, options);
+    }
+    if (selection.runner === 'workspace') {
+      return this.app.workspaceRunner.run(mission, options);
     }
     if (selection.runner === 'codex') {
       return this.app.codexRunner.run(mission, options);
@@ -358,6 +356,9 @@ function toOwnerSummary(summary: string): string {
     .replace(/^Codex completed:\s*/i, '已完成：')
     .replace(/^Claude Code completed:\s*/i, '已完成：')
     .replace(/^Hermes completed:\s*/i, '已完成：')
+    .replace(/^Boss workspace check completed:\s*/i, '我已完成本地检查：')
+    .replace(/^Workspace check passed:\s*/i, '检查通过：')
+    .replace(/^Workspace check failed:\s*/i, '检查失败：')
     .replace(/^Mock runner completed mission with .+\.$/i, '任务已完成，过程已记录。')
     .replace(/^Boss reviewed the result and accepted the mock output\.$/i, '我已验收当前结果。');
 }
@@ -391,6 +392,9 @@ function detectRunner(line: string): RunnerSelection | undefined {
   if (/(mock|模拟|演示 worker)/i.test(line)) {
     return { runner: 'mock', assetId: 'mock-worker' };
   }
+  if (/(workspace|bash|本地|自己|boss 自己|boss自己)/i.test(line)) {
+    return { runner: 'workspace', assetId: 'boss-workspace' };
+  }
   return undefined;
 }
 
@@ -400,6 +404,9 @@ function runnerForIntent(runner: BossIntentRunner): RunnerSelection {
   }
   if (runner === 'mock') {
     return { runner, assetId: 'mock-worker' };
+  }
+  if (runner === 'workspace') {
+    return { runner, assetId: 'boss-workspace' };
   }
   return { runner, assetId: runner };
 }
@@ -432,6 +439,9 @@ function runnerForAsset(assetId: string): RunnerSelection {
   if (assetId === 'codex') {
     return { runner: 'codex', assetId };
   }
+  if (assetId === 'boss-workspace') {
+    return { runner: 'workspace', assetId };
+  }
   return { runner: 'mock', assetId };
 }
 
@@ -443,7 +453,7 @@ function cleanGoal(line: string): string {
   const cleaned = line
     .replace(/^(请|麻烦)?(boss|老板|agent boss)[,，\s]*/i, '')
     .replace(/^(请|麻烦)?(帮我|我要|我想|给我|创建一个?任务|新建一个?任务|开一个?任务)\s*/i, '')
-    .replace(/^(请|麻烦)?(用|让|派给|交给)\s*(claude\s*code|claude|hermes|openclaw|open\s*claw|codex|mock|模拟)\s*(来|帮我|执行|跑)?\s*/i, '')
+    .replace(/^(请|麻烦)?(用|让|派给|交给)\s*(claude\s*code|claude|hermes|openclaw|open\s*claw|codex|mock|workspace|bash|本地|自己|模拟)\s*(来|帮我|执行|跑)?\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned || line;
@@ -550,6 +560,15 @@ function defaultAsset(id: string): AddAssetInput {
       plan: 'coding-plan',
       scenes: ['code', 'refactor', 'mvp'],
       costMode: 'subscription',
+    };
+  }
+  if (id === 'boss-workspace') {
+    return {
+      id,
+      type: 'tool',
+      name: 'Boss Workspace',
+      scenes: ['workspace', 'filesystem', 'bash', 'audit'],
+      costMode: 'free',
     };
   }
   return {

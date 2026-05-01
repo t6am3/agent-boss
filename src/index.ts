@@ -3,6 +3,7 @@ export * from './core/App';
 export * from './core/AssetLedger';
 export * from './core/MissionStore';
 export * from './core/MissionRunner';
+export * from './core/BossWorkspaceRunner';
 export * from './core/Supervisor';
 export * from './core/Reporter';
 export * from './core/EvaluationEngine';

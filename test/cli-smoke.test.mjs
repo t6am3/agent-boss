@@ -334,6 +334,38 @@ test('Boss direct line can create and run from one natural language message', ()
   assert.match(output, /目标：跑一个自然语言自动派发任务/);
 });
 
+test('CLI mission run can use the Boss workspace runner', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-workspace-cli-'));
+  writeFileSync(
+    path.join(cwd, 'package.json'),
+    JSON.stringify({ scripts: { test: 'node -e "console.log(\\"workspace cli ok\\")"' } }, null, 2),
+  );
+  writeFileSync(path.join(cwd, 'README.md'), '# Workspace CLI fixture\n');
+
+  runCli(cwd, ['mission', 'create', 'check local workspace']);
+  const output = runCli(cwd, ['mission', 'run', 'm-001', '--runner', 'workspace']);
+
+  assert.match(output, /Run completed: completed/);
+  assert.match(output, /Boss workspace check completed/);
+  assert.match(runCli(cwd, ['mission', 'log', 'm-001']), /npm-test/);
+});
+
+test('Boss direct line starts the latest mission with the workspace loop by default', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-workspace-direct-'));
+  writeFileSync(path.join(cwd, 'README.md'), '# Workspace direct fixture\n');
+
+  const output = runCliWithInput(
+    cwd,
+    ['boss'],
+    '帮我检查这个临时项目\n开始执行\n审计\nexit\n',
+  );
+
+  assert.match(output, /我已接单：m-001/);
+  assert.match(output, /状态：执行完成/);
+  assert.match(output, /我已完成本地检查/);
+  assert.match(output, /Workspace check passed/);
+});
+
 test('Boss brain model can be configured and used for intent handling', () => {
   const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-brain-config-'));
   const fakeBrain = createFakeOpenClaw(cwd, [

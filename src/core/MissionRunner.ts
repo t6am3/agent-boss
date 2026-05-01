@@ -3,7 +3,7 @@ import { Mission, MissionEventType, SupervisorDecision } from '../domain/types';
 import { MissionStore } from './MissionStore';
 import { Supervisor } from './Supervisor';
 
-export type MissionRunnerKind = 'mock' | 'openclaw' | 'codex' | 'claude' | 'hermes';
+export type MissionRunnerKind = 'mock' | 'workspace' | 'openclaw' | 'codex' | 'claude' | 'hermes';
 export type MockRunScenario = 'happy' | 'confirmation' | 'permission' | 'blocked';
 export type MissionRunStatus = 'completed' | 'waiting_owner' | 'blocked';
 

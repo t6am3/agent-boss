@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createRequire } from 'node:module';
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -116,6 +116,34 @@ test('MockMissionRunner completes a mission and records supervisor decisions', a
     assert.equal(finalMission.progress, 100);
     assert.ok(events.some((event) => event.type === 'confirmation_requested'));
     assert.ok(events.some((event) => event.type === 'decision'));
+  } finally {
+    await app.db.close();
+  }
+});
+
+test('BossWorkspaceRunner creates mission workspace and records bash audit', async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'agent-boss-workspace-core-'));
+  writeFileSync(
+    path.join(cwd, 'package.json'),
+    JSON.stringify({ scripts: { test: 'node -e "console.log(\\"workspace ok\\")"' } }, null, 2),
+  );
+  writeFileSync(path.join(cwd, 'README.md'), '# Workspace fixture\n');
+  const app = await createApp({ cwd });
+
+  try {
+    const mission = await app.missions.createMission('Check whether this project can run');
+    const result = await app.workspaceRunner.run(mission);
+    const finalMission = await app.missions.getMission(mission.id);
+    const events = await app.missions.listEvents(mission.id);
+    const workspacePath = path.join(cwd, '.agent-boss', 'workspaces', mission.id);
+
+    assert.equal(result.status, 'completed');
+    assert.equal(finalMission.status, 'completed');
+    assert.equal(finalMission.progress, 100);
+    assert.ok(existsSync(path.join(workspacePath, 'goal.md')));
+    assert.ok(existsSync(path.join(workspacePath, 'progress.md')));
+    assert.match(readFileSync(path.join(workspacePath, 'progress.md'), 'utf8'), /npm-test/);
+    assert.ok(events.some((event) => event.type === 'progress' && /npm-test/.test(event.content)));
   } finally {
     await app.db.close();
   }
